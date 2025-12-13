@@ -4,23 +4,25 @@ const SHOP = process.env.SHOPIFY_STORE_DOMAIN;
 const TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
 
 /**
- * Metafield type mapping based on Shopify definitions
- * Update these if your Shopify store has different definitions
+ * Metafield type mapping based on your Shopify store definitions
+ * Based on the Product metafields screenshot
  */
 const METAFIELD_TYPES = {
-  // List fields (arrays)
+  // List fields (tasting notes)
   nose: "list.single_line_text_field",
   palate: "list.single_line_text_field",
   finish: "list.single_line_text_field",
   cask_wood: "list.single_line_text_field",
   
-  // Single fields
-  country_of_origin: "single_line_text_field",
+  // Single text fields
   sub_type: "single_line_text_field",
+  country_of_origin: "single_line_text_field",
   region: "single_line_text_field",
   finish_type: "single_line_text_field",
   age_statement: "single_line_text_field",
   alcohol_by_volume: "single_line_text_field",
+  awards: "single_line_text_field",
+  gift_pack: "single_line_text_field",
   
   // Boolean fields
   finished: "boolean",
@@ -38,7 +40,7 @@ function fixMetafieldTypes(metafields) {
     const correctType = METAFIELD_TYPES[mf.key];
     
     if (!correctType || mf.type === correctType) {
-      return mf; // Already correct or unknown field
+      return mf;
     }
     
     console.log(`SHOPIFY: Fixing ${mf.key} from ${mf.type} to ${correctType}`);
@@ -113,11 +115,18 @@ async function makeRequest(product, metafields) {
         product: {
           title: product.title,
           body_html: product.description,
+          vendor: product.vendor || "The Whiskey Library",
+          product_type: product.product_type || "",
           status: "draft",
           variants: [
             {
               price: product.price,
-              cost: product.cost
+              cost: product.cost,
+              inventory_management: "shopify",
+              inventory_policy: "deny",
+              weight: 3.5,
+              weight_unit: "lb",
+              requires_shipping: true
             }
           ],
           images: product.imageUrl
@@ -138,5 +147,8 @@ function parseSuccess(text) {
   }
 
   console.log("SHOPIFY SUCCESS: Product created", data.product.id);
+  console.log("SHOPIFY: Vendor set to:", data.product.vendor);
+  console.log("SHOPIFY: Product Type set to:", data.product.product_type);
+  
   return data.product;
 }

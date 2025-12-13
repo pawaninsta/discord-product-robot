@@ -6,73 +6,126 @@ const openai = new OpenAI({
 
 /**
  * Generate structured product data for Shopify
- * Uses IMAGE + NOTES (Vision enabled)
+ * Uses IMAGE + NOTES + optional web research (Vision enabled)
  */
-export async function generateProductData({ notes, imageUrl }) {
+export async function generateProductData({ notes, imageUrl, webResearch }) {
   console.log("AI STEP: Generating product data (with vision)");
   console.log("AI INPUT NOTES:", notes);
   console.log("AI IMAGE URL:", imageUrl);
+  console.log("AI WEB RESEARCH:", webResearch ? "Available" : "None");
 
   if (!imageUrl) {
     throw new Error("generateProductData requires imageUrl");
   }
 
   const systemPrompt = `
-You are a whiskey expert and e-commerce copywriter.
+You are a whiskey expert and e-commerce copywriter for The Whiskey Library.
 
-You are generating a Shopify product listing for a whiskey bottle.
+You are generating a Shopify product listing for a spirit bottle.
 
-You can SEE the bottle image and must read the label text.
+You can SEE the bottle image and must READ THE LABEL CAREFULLY to extract ALL information.
 
-RULES:
+## CRITICAL: READ THE LABEL THOROUGHLY
+
+Look for and extract:
+- Brand name (this becomes the "vendor")
+- Product name / Expression name
+- Age statement (look for "X Years Old", "Aged X Years", etc.)
+- ABV / Proof (convert proof to ABV: proof ÷ 2 = ABV%)
+- Batch number / Barrel number
+- Bottled-in-Bond designation
+- Single Barrel designation
+- Cask Strength / Barrel Proof designation
+- Special finishes mentioned
+- Distillery location / state / country
+- Volume (750ml, 1L, etc.)
+- Any awards or accolades shown
+
+## RULES:
 - You MUST return valid JSON only
 - You MUST fill in every field
-- Never leave fields empty
-- If information is unknown or unclear, use safe defaults:
-  - age_statement: "NAS"
-  - finish_type: "None"
-  - awards: ""
-- Always generate realistic tasting notes
-- Do NOT invent rare finishes, ages, or mash bills
-- Use realistic ABV ranges if not clearly stated on the label
-- Prefer what is visible on the label over assumptions
+- Extract brand name separately - this is the VENDOR field
+- If age is not stated, use "NAS" (No Age Statement)
+- If ABV is shown as proof, convert it (proof ÷ 2)
+- Be accurate - don't guess ages or batch numbers
+- Use web research data if provided to fill gaps
 
-IMPORTANT: For cask_wood, you MUST use ONLY these exact values (can be an array for multiple):
-["American White Oak", "European Oak", "French Oak", "Ex-Bourbon Barrels", "Sherry Casks", "Pedro Ximénez", "Fino / Amontillado", "Rum Casks", "Wine Cask", "Port Cask", "Madeira Casks", "Cognac or Brandy Casks", "Beer Cask", "Mizunara Oak", "Amburana Cask", "Chinquapin Oak", "Other"]
+## PRODUCT TYPES (pick one):
+American Whiskey, Scotch Whisky, Irish Whiskey, Japanese Whisky, World Whiskey, Rum, Brandy, Tequila, Cognac, Mezcal, Liqueur, Other
 
-IMPORTANT: For country, you MUST use ONLY these exact values:
-["USA", "Ireland", "Scotland", "Canada", "Japan", "India", "Taiwan", "England", "France", "Mexico", "Italy", "Portugal", "Other"]
+## SUB-TYPES by category:
+
+**American Whiskey:** Bourbon, Straight Bourbon, Rye, Straight Rye, American Single Malt, Wheat Whiskey, Corn Whiskey, Tennessee Whiskey, Blended American, Other
+**Scotch Whisky:** Single Malt, Blended Malt, Blended Scotch, Single Grain, Blended Grain
+**Irish Whiskey:** Single Pot Still, Single Malt, Single Grain, Blended
+**Japanese Whisky:** Single Malt, Blended, Grain
+**Rum:** Agricole, Jamaican, Demerara, Spanish-style, Overproof, Spiced
+**Cognac:** VS, VSOP, XO, XXO, Hors d'Âge
+**Tequila:** Blanco, Reposado, Añejo, Extra Añejo
+
+## COUNTRIES (pick one):
+USA, Scotland, Ireland, Japan, Canada, Taiwan, India, England, Wales, France, Mexico, Australia, Other
+
+## US STATES (if USA):
+Kentucky, Tennessee, Texas, New York, Colorado, Indiana, California, Oregon, Washington, Pennsylvania, Virginia, South Carolina, Other
+
+## CASK WOOD OPTIONS (can be multiple):
+American White Oak, European Oak, French Oak, Ex-Bourbon Barrels, Sherry Casks, Pedro Ximénez, Oloroso, Rum Casks, Wine Cask, Port Cask, Madeira Casks, Cognac Casks, Beer Cask, Mizunara Oak, Amburana Cask, Other
+
+## FINISH TYPES (if secondary finish):
+None, Sherry, Port, Madeira, Wine, Rum, Cognac, Beer/Stout, Maple, Honey, Other
+
+## TASTING NOTE VOCABULARY:
+vanilla, caramel, toffee, honey, brown sugar, chocolate, cocoa, coffee, dried fruit, raisin, date, fig, red fruit, stone fruit, orchard fruit, citrus, tropical, malt, biscuit, nutty, almond, hazelnut, peanut, baking spice, cinnamon, clove, nutmeg, pepper, herbal, floral, oak, cedar, tobacco, leather, smoke, peat, maritime, brine, earthy, mint, eucalyptus, corn, grain, cherry, apple, pear, banana, coconut, butterscotch
 
 Return JSON in this EXACT structure:
 {
-  "title": "Brand Name Product Name",
-  "description": "A compelling 2-3 sentence product description for Shopify",
-  "nose": ["aroma note 1", "aroma note 2", "aroma note 3"],
-  "palate": ["taste note 1", "taste note 2", "taste note 3"],
-  "finish": ["finish note 1", "finish note 2"],
-  "sub_type": "Straight Bourbon Whiskey",
+  "vendor": "Brand/Distillery Name",
+  "title": "Full Product Name with Age if applicable",
+  "description": "A compelling 2-3 sentence product description",
+  "product_type": "American Whiskey",
+  "sub_type": "Straight Bourbon",
+  "nose": ["vanilla", "caramel", "oak"],
+  "palate": ["honey", "spice", "dried fruit"],
+  "finish": ["long", "warm", "oak"],
   "country": "USA",
   "region": "Kentucky",
   "cask_wood": ["American White Oak"],
   "finish_type": "None",
-  "age_statement": "4 Years" or "NAS",
+  "age_statement": "NAS or X Years",
   "abv": "45%",
+  "batch_number": "Batch 123 or empty string if none",
+  "barrel_number": "Barrel 456 or empty string if none",
+  "volume_ml": 750,
   "finished": false,
   "store_pick": false,
   "cask_strength": false,
   "single_barrel": false,
+  "bottled_in_bond": false,
   "limited_time_offer": false
 }
 `;
 
+  let webContext = "";
+  if (webResearch?.summary) {
+    webContext = `
+
+## WEB RESEARCH (use to supplement label info):
+${webResearch.summary}
+`;
+  }
+
   const userPrompt = `
 Optional notes from the user (may be empty or incomplete):
 ${notes || "No additional notes provided"}
+${webContext}
 
 TASK:
-1. Read the bottle label from the image
-2. Identify the brand and product name
-3. Generate a complete whiskey product listing suitable for Shopify
+1. CAREFULLY read ALL text on the bottle label
+2. Extract brand name, product name, age, ABV, batch/barrel numbers
+3. Look for special designations (Single Barrel, Cask Strength, Bottled-in-Bond)
+4. Generate complete product listing with accurate extracted information
+5. Use web research data if provided to fill in gaps
 `;
 
   let response;
@@ -80,7 +133,7 @@ TASK:
   try {
     response = await openai.chat.completions.create({
       model: "gpt-4o",
-      temperature: 0.4,
+      temperature: 0.3, // Lower temperature for more accurate extraction
       messages: [
         {
           role: "system",
@@ -93,7 +146,8 @@ TASK:
             {
               type: "image_url",
               image_url: {
-                url: imageUrl
+                url: imageUrl,
+                detail: "high" // High detail for better label reading
               }
             }
           ]
@@ -123,91 +177,100 @@ TASK:
     console.error("RAW STRING:", raw);
     throw new Error("AI returned invalid JSON");
   }
-// -------------------------
-// NORMALIZE AI SCHEMA
-// -------------------------
 
-// Build title if missing
-if (!data.title) {
-  if (data.brand && data.product_name) {
-    data.title = `${data.brand} ${data.product_name}`;
-  } else if (data.product_name) {
-    data.title = data.product_name;
-  }
-}
+  // -------------------------
+  // NORMALIZE AI SCHEMA
+  // -------------------------
 
-// Build description if missing
-if (!data.description && data.title) {
-  data.description = `Discover ${data.title}. A premium whiskey crafted with care.`;
-}
-
-// Flatten tasting notes if nested
-if (data.tasting_notes) {
-  data.nose = data.nose || data.tasting_notes.nose;
-  data.palate = data.palate || data.tasting_notes.palate;
-  data.finish = data.finish || data.tasting_notes.finish;
-}
-
-// Defaults for missing structured fields
-data.sub_type = data.sub_type || "Straight Bourbon Whiskey";
-data.country = data.country || "USA";
-data.region = data.region || "Kentucky";
-data.cask_wood = data.cask_wood || "American White Oak";
-data.finish_type = data.finish_type || "None";
-data.age_statement = data.age_statement || "NAS";
-
-// Valid choices for Shopify metafields (must match exactly)
-const VALID_CASK_WOODS = [
-  "American White Oak", "European Oak", "French Oak", "Ex-Bourbon Barrels",
-  "Sherry Casks", "Pedro Ximénez", "Fino / Amontillado", "Rum Casks",
-  "Wine Cask", "Port Cask", "Madeira Casks", "Cognac or Brandy Casks",
-  "Beer Cask", "Mizunara Oak", "Amburana Cask", "Chinquapin Oak", "Other"
-];
-
-const VALID_COUNTRIES = [
-  "USA", "Ireland", "Scotland", "Canada", "Japan", "India",
-  "Taiwan", "England", "France", "Mexico", "Italy", "Portugal", "Other"
-];
-
-// Normalize cask_wood to valid choices
-if (data.cask_wood) {
-  const caskWoods = Array.isArray(data.cask_wood) ? data.cask_wood : [data.cask_wood];
-  data.cask_wood = caskWoods.map(cw => {
-    // Try exact match first
-    if (VALID_CASK_WOODS.includes(cw)) return cw;
-    // Try case-insensitive match
-    const match = VALID_CASK_WOODS.find(v => v.toLowerCase() === cw.toLowerCase());
-    if (match) return match;
-    // Common mappings
-    if (cw.toLowerCase().includes("american") && cw.toLowerCase().includes("oak")) return "American White Oak";
-    if (cw.toLowerCase().includes("sherry")) return "Sherry Casks";
-    if (cw.toLowerCase().includes("bourbon")) return "Ex-Bourbon Barrels";
-    // Default to Other if no match
-    console.warn(`Unknown cask_wood value "${cw}", defaulting to "Other"`);
-    return "Other";
-  });
-}
-
-// Normalize country to valid choice
-if (data.country) {
-  const country = String(data.country);
-  if (!VALID_COUNTRIES.includes(country)) {
-    const match = VALID_COUNTRIES.find(v => v.toLowerCase() === country.toLowerCase());
-    if (match) {
-      data.country = match;
-    } else {
-      console.warn(`Unknown country value "${country}", defaulting to "Other"`);
-      data.country = "Other";
+  // Build title if missing
+  if (!data.title) {
+    if (data.vendor && data.product_name) {
+      data.title = `${data.vendor} ${data.product_name}`;
+    } else if (data.product_name) {
+      data.title = data.product_name;
     }
   }
-}
 
-// Boolean defaults
-data.finished = Boolean(data.finished);
-data.store_pick = Boolean(data.store_pick);
-data.cask_strength = Boolean(data.cask_strength);
-data.single_barrel = Boolean(data.single_barrel);
-data.limited_time_offer = Boolean(data.limited_time_offer);
+  // Ensure vendor is set
+  if (!data.vendor) {
+    // Try to extract from title
+    const titleParts = data.title?.split(" ") || [];
+    data.vendor = titleParts[0] || "Unknown";
+  }
+
+  // Build description if missing
+  if (!data.description && data.title) {
+    data.description = `Discover ${data.title}. A premium spirit crafted with care.`;
+  }
+
+  // Flatten tasting notes if nested
+  if (data.tasting_notes) {
+    data.nose = data.nose || data.tasting_notes.nose;
+    data.palate = data.palate || data.tasting_notes.palate;
+    data.finish = data.finish || data.tasting_notes.finish;
+  }
+
+  // Defaults for missing structured fields
+  data.product_type = data.product_type || "American Whiskey";
+  data.sub_type = data.sub_type || "Bourbon";
+  data.country = data.country || "USA";
+  data.region = data.region || "Kentucky";
+  data.cask_wood = data.cask_wood || ["American White Oak"];
+  data.finish_type = data.finish_type || "None";
+  data.age_statement = data.age_statement || "NAS";
+  data.batch_number = data.batch_number || "";
+  data.barrel_number = data.barrel_number || "";
+  data.volume_ml = data.volume_ml || 750;
+
+  // Valid choices for Shopify metafields (must match exactly)
+  const VALID_CASK_WOODS = [
+    "American White Oak", "European Oak", "French Oak", "Ex-Bourbon Barrels",
+    "Sherry Casks", "Pedro Ximénez", "Oloroso", "Rum Casks",
+    "Wine Cask", "Port Cask", "Madeira Casks", "Cognac Casks",
+    "Beer Cask", "Mizunara Oak", "Amburana Cask", "Other"
+  ];
+
+  const VALID_COUNTRIES = [
+    "USA", "Scotland", "Ireland", "Japan", "Canada", "Taiwan", "India",
+    "England", "Wales", "France", "Mexico", "Australia", "Other"
+  ];
+
+  // Normalize cask_wood to valid choices
+  if (data.cask_wood) {
+    const caskWoods = Array.isArray(data.cask_wood) ? data.cask_wood : [data.cask_wood];
+    data.cask_wood = caskWoods.map(cw => {
+      if (VALID_CASK_WOODS.includes(cw)) return cw;
+      const match = VALID_CASK_WOODS.find(v => v.toLowerCase() === cw.toLowerCase());
+      if (match) return match;
+      if (cw.toLowerCase().includes("american") && cw.toLowerCase().includes("oak")) return "American White Oak";
+      if (cw.toLowerCase().includes("sherry")) return "Sherry Casks";
+      if (cw.toLowerCase().includes("bourbon")) return "Ex-Bourbon Barrels";
+      console.warn(`Unknown cask_wood value "${cw}", defaulting to "Other"`);
+      return "Other";
+    });
+  }
+
+  // Normalize country to valid choice
+  if (data.country) {
+    const country = String(data.country);
+    if (!VALID_COUNTRIES.includes(country)) {
+      const match = VALID_COUNTRIES.find(v => v.toLowerCase() === country.toLowerCase());
+      if (match) {
+        data.country = match;
+      } else {
+        console.warn(`Unknown country value "${country}", defaulting to "Other"`);
+        data.country = "Other";
+      }
+    }
+  }
+
+  // Boolean defaults
+  data.finished = Boolean(data.finished);
+  data.store_pick = Boolean(data.store_pick);
+  data.cask_strength = Boolean(data.cask_strength);
+  data.single_barrel = Boolean(data.single_barrel);
+  data.bottled_in_bond = Boolean(data.bottled_in_bond);
+  data.limited_time_offer = Boolean(data.limited_time_offer);
 
   // -------------------------
   // HARD VALIDATION
@@ -223,6 +286,7 @@ data.limited_time_offer = Boolean(data.limited_time_offer);
   }
 
   const requiredFields = [
+    "vendor",
     "title",
     "description",
     "nose",
@@ -243,15 +307,6 @@ data.limited_time_offer = Boolean(data.limited_time_offer);
       throw new Error(`AI missing or invalid field: ${field}`);
     }
   }
-
-  // -------------------------
-  // NORMALIZE BOOLEANS
-  // -------------------------
-  data.finished = Boolean(data.finished);
-  data.store_pick = Boolean(data.store_pick);
-  data.cask_strength = Boolean(data.cask_strength);
-  data.single_barrel = Boolean(data.single_barrel);
-  data.limited_time_offer = Boolean(data.limited_time_offer);
 
   console.log("AI STEP COMPLETE: Product data generated");
   console.log("AI OUTPUT:", JSON.stringify(data, null, 2));
