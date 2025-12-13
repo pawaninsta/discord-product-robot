@@ -62,17 +62,19 @@ export async function runPipeline({ image, cost, price, notes }) {
       cost,
       imageUrl: finalImageUrl,
       metafields: [
-        // Tasting notes (list fields)
-        mfList("nose", aiData.nose),
-        mfList("palate", aiData.palate),
-        mfList("finish", aiData.finish),
+        // Tasting notes (single text - comma-separated)
+        mf("nose", Array.isArray(aiData.nose) ? aiData.nose.join(", ") : aiData.nose),
+        mf("palate", Array.isArray(aiData.palate) ? aiData.palate.join(", ") : aiData.palate),
+        mf("finish", Array.isArray(aiData.finish) ? aiData.finish.join(", ") : aiData.finish),
+        
+        // List fields
         mfList("cask_wood", aiData.cask_wood),
+        mfList("finish_type", aiData.finish_type),
         
         // Product details (single text fields)
         mf("sub_type", aiData.sub_type),
         mf("country_of_origin", aiData.country),
         mf("region", aiData.region),
-        mf("finish_type", aiData.finish_type),
         mf("age_statement", aiData.age_statement),
         mf("alcohol_by_volume", aiData.abv),
 
