@@ -29,20 +29,44 @@ async function googleCseSearch({ q, num = 5 }) {
   const url = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_CX}&q=${encodeURIComponent(safeQ)}&num=${safeNum}`;
 
   const res = await fetch(url);
+  const bodyText = await res.text().catch(() => "");
+
   if (!res.ok) {
-    const bodyText = await res.text().catch(() => "");
-    console.warn("SEARCH: Google API error:", res.status, bodyText ? `| ${bodyText.slice(0, 300)}` : "");
+    // Try to parse Google error message for actionable feedback.
+    let parsed = null;
+    try {
+      parsed = bodyText ? JSON.parse(bodyText) : null;
+    } catch {}
+
+    const msg =
+      parsed?.error?.message ||
+      (typeof bodyText === "string" && bodyText.trim() ? bodyText.trim().slice(0, 500) : "") ||
+      `Google CSE error (${res.status})`;
+
+    console.warn("SEARCH: Google API error:", res.status, msg);
     if (res.status === 400) {
       console.warn("SEARCH: Hint: verify GOOGLE_CX is the CSE ID (not a full URL), Custom Search API is enabled, and the API key allows requests from Railway.");
     }
-    return null;
+
+    return {
+      ok: false,
+      statusCode: res.status,
+      errorMessage: msg
+    };
   }
 
-  const data = await res.json();
-  if (!data?.items?.length) return { results: [] };
+  let data = null;
+  try {
+    data = bodyText ? JSON.parse(bodyText) : null;
+  } catch {
+    data = null;
+  }
 
+  const items = data?.items || [];
   return {
-    results: data.items.map(item => ({
+    ok: true,
+    statusCode: res.status,
+    results: items.map(item => ({
       title: item.title,
       snippet: item.snippet,
       link: item.link
@@ -59,17 +83,19 @@ export async function searchWhiskeyInfo(query) {
 
   if (!GOOGLE_API_KEY || !GOOGLE_CX) {
     console.log("SEARCH: Google API not configured, skipping web search");
-    return null;
+    return { status: "disabled", results: [], summary: "", errorMessage: "" };
   }
 
   try {
     const safeQuery = String(query || "").replace(/\s+/g, " ").trim().slice(0, 140);
-    const data = await googleCseSearch({ q: `${safeQuery} whiskey bourbon specs ABV age`, num: 5 });
-    const results = data?.results || [];
-    if (results.length === 0) {
-      console.log("SEARCH: No results found");
-      return null;
+    const resp = await googleCseSearch({ q: `${safeQuery} whiskey bourbon specs ABV age`, num: 5 });
+    if (!resp) return { status: "disabled", results: [], summary: "", errorMessage: "" };
+    if (!resp.ok) {
+      return { status: "error", results: [], summary: "", errorMessage: resp.errorMessage || "" };
     }
+
+    const results = resp.results || [];
+    if (results.length === 0) return { status: "ok", results: [], summary: "", errorMessage: "" };
 
     console.log("SEARCH: Found", results.length, "results");
     
@@ -77,12 +103,14 @@ export async function searchWhiskeyInfo(query) {
     const summary = results.map(r => `${r.title}: ${r.snippet}`).join("\n\n");
     
     return {
+      status: "ok",
       results,
-      summary
+      summary,
+      errorMessage: ""
     };
   } catch (err) {
     console.error("SEARCH: Error:", err.message);
-    return null;
+    return { status: "error", results: [], summary: "", errorMessage: err?.message || String(err) };
   }
 }
 
@@ -95,7 +123,7 @@ export async function searchTastingNotes(query) {
 
   if (!GOOGLE_API_KEY || !GOOGLE_CX) {
     console.log("SEARCH(TASTING): Google API not configured, skipping web search");
-    return null;
+    return { status: "disabled", results: [], tastingNotesSummary: "", errorMessage: "" };
   }
 
   const base = String(query || "").replace(/\s+/g, " ").trim().slice(0, 160);
@@ -111,17 +139,29 @@ export async function searchTastingNotes(query) {
   ];
 
   const all = [];
+  let firstError = "";
   for (const p of probes) {
     try {
       const res = await googleCseSearch({ q: p.q, num: p.num });
-      const results = (res?.results || []).map(r => ({ ...r, source: p.source }));
+      if (!res) continue;
+      if (!res.ok) {
+        if (!firstError) firstError = res.errorMessage || "";
+        continue;
+      }
+      const results = (res.results || []).map(r => ({ ...r, source: p.source }));
       all.push(...results);
     } catch (e) {
       console.warn(`SEARCH(TASTING): probe failed (${p.source}):`, e?.message || String(e));
     }
   }
 
-  if (all.length === 0) return null;
+  if (all.length === 0) {
+    // If every probe failed with an API error, keep the errorMessage for downstream UX.
+    if (firstError) {
+      return { status: "error", results: [], tastingNotesSummary: "", errorMessage: firstError };
+    }
+    return { status: "ok", results: [], tastingNotesSummary: "", errorMessage: "" };
+  }
 
   // De-dupe by link.
   const seen = new Set();
@@ -140,8 +180,10 @@ export async function searchTastingNotes(query) {
     .join("\n");
 
   return {
+    status: "ok",
     results: deduped,
-    tastingNotesSummary
+    tastingNotesSummary,
+    errorMessage: ""
   };
 }
 

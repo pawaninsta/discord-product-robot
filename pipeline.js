@@ -3,6 +3,7 @@ import { generateStudioImage } from "./image.js";
 import { createDraftProduct } from "./shopify.js";
 import { searchWhiskeyInfo, searchTastingNotes } from "./search.js";
 import { extractLabelSignals, identifyBottleForSearch } from "./ai.js";
+import { buildTastingPriors } from "./tasting-priors.js";
 import fetch from "node-fetch";
 
 /**
@@ -67,6 +68,8 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
 
     // Web research (tasting notes + specs) to reduce generic output
     let webResearch = null;
+    let tastingPriors = null;
+    let tastingMode = "inferred";
     try {
       // Step A: identify bottle for a clean search query
       const ident = await identifyBottleForSearch({ notes: notesWithUserAbv, imageUrl: finalImageUrl }).catch(() => null);
@@ -88,13 +91,48 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
           searchTastingNotes(fallbackQuery).catch(() => null)
         ]);
 
+        const specsStatus = specs?.status || (specs ? "ok" : "error");
+        const tastingStatus = tasting?.status || (tasting ? "ok" : "error");
+        const errorMessage =
+          specs?.errorMessage ||
+          tasting?.errorMessage ||
+          "";
+
+        // Roll up status for downstream prompt + UX.
+        let status = "ok";
+        if (specsStatus === "disabled" && tastingStatus === "disabled") status = "disabled";
+        else if (specsStatus === "error" || tastingStatus === "error") status = "error";
+
         webResearch = {
           query: fallbackQuery,
+          status,
+          errorMessage,
           summary: specs?.summary || "",
           results: specs?.results || [],
           tastingNotesSummary: tasting?.tastingNotesSummary || "",
           tastingResults: tasting?.results || []
         };
+
+        // Surface failures loudly so you immediately know why notes may be generic.
+        if (status === "error" && errorMessage) {
+          await send(`⚠️ Web research failed: ${errorMessage}. I’ll infer tasting notes from label/producer patterns unless you fix the search key.`);
+        } else if (status === "disabled") {
+          await send("ℹ️ Web research is disabled (missing GOOGLE_API_KEY/GOOGLE_CX). I’ll infer tasting notes from label/producer patterns.");
+        } else if (status === "ok" && !webResearch.tastingNotesSummary) {
+          await send("ℹ️ Web research ran, but I didn’t find tasting-note snippets for this bottle. I’ll infer tasting notes from label/producer patterns.");
+        }
+
+        tastingMode = webResearch.status === "ok" && Boolean(webResearch.tastingNotesSummary) ? "web_grounded" : "inferred";
+
+        // Build deterministic priors so notes shift per bottle even when web data is missing.
+        tastingPriors = buildTastingPriors({
+          query: fallbackQuery,
+          vendor: ident?.vendor || "",
+          title: ident?.product_name || "",
+          notes: notesWithUserAbv,
+          abv: signals?.abv || abvFromInput || "",
+          proof: signals?.proof || (typeof proof === "number" ? String(proof) : "")
+        });
       }
     } catch (webErr) {
       console.warn("SEARCH: failed:", webErr?.message || String(webErr));
@@ -108,7 +146,9 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
     const aiData = await generateProductData({
       notes: notesWithSignals,
       imageUrl: finalImageUrl,
-      webResearch
+      webResearch,
+      tastingPriors,
+      tastingMode
     });
 
     // Merge signals into aiData if they are higher confidence
