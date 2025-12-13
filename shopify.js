@@ -3,127 +3,140 @@ import fetch from "node-fetch";
 const SHOP = process.env.SHOPIFY_STORE_DOMAIN;
 const TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
 
+/**
+ * Metafield type mapping based on Shopify definitions
+ * Update these if your Shopify store has different definitions
+ */
+const METAFIELD_TYPES = {
+  // List fields (arrays)
+  nose: "list.single_line_text_field",
+  palate: "list.single_line_text_field",
+  finish: "list.single_line_text_field",
+  cask_wood: "list.single_line_text_field",
+  
+  // Single fields
+  country_of_origin: "single_line_text_field",
+  sub_type: "single_line_text_field",
+  region: "single_line_text_field",
+  finish_type: "single_line_text_field",
+  age_statement: "single_line_text_field",
+  alcohol_by_volume: "single_line_text_field",
+  
+  // Boolean fields
+  finished: "boolean",
+  store_pick: "boolean",
+  cask_strength: "boolean",
+  single_barrel: "boolean",
+  limited_time_offer: "boolean"
+};
+
+/**
+ * Fix metafield types to match Shopify definitions
+ */
+function fixMetafieldTypes(metafields) {
+  return metafields.map(mf => {
+    const correctType = METAFIELD_TYPES[mf.key];
+    
+    if (!correctType || mf.type === correctType) {
+      return mf; // Already correct or unknown field
+    }
+    
+    console.log(`SHOPIFY: Fixing ${mf.key} from ${mf.type} to ${correctType}`);
+    
+    // Convert list to single
+    if (mf.type === "list.single_line_text_field" && correctType === "single_line_text_field") {
+      let value = mf.value;
+      try {
+        const arr = JSON.parse(mf.value);
+        value = Array.isArray(arr) ? arr[0] || "" : String(mf.value);
+      } catch {
+        value = String(mf.value);
+      }
+      return { ...mf, type: correctType, value };
+    }
+    
+    // Convert single to list
+    if (mf.type === "single_line_text_field" && correctType === "list.single_line_text_field") {
+      const value = JSON.stringify([mf.value].filter(Boolean));
+      return { ...mf, type: correctType, value };
+    }
+    
+    return { ...mf, type: correctType };
+  });
+}
+
 export async function createDraftProduct(product) {
   console.log("SHOPIFY: Creating draft product");
   console.log("SHOPIFY PAYLOAD:", JSON.stringify(product, null, 2));
 
-  let metafields = product.metafields || [];
-  let attempt = 0;
-  const maxAttempts = 5;
+  // Fix metafield types before first attempt
+  let metafields = fixMetafieldTypes(product.metafields || []);
+  
+  // Attempt 1: With corrected metafields
+  console.log(`SHOPIFY: Attempt 1 with ${metafields.length} metafields`);
+  
+  let res = await makeRequest(product, metafields);
+  let text = await res.text();
+  console.log("SHOPIFY RAW RESPONSE:", text);
 
-  while (attempt < maxAttempts) {
-    attempt++;
-    console.log(`SHOPIFY: Attempt ${attempt} with ${metafields.length} metafields`);
-
-    const res = await fetch(
-      `https://${SHOP}/admin/api/2024-01/products.json`,
-      {
-        method: "POST",
-        headers: {
-          "X-Shopify-Access-Token": TOKEN,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          product: {
-            title: product.title,
-            body_html: product.description,
-            status: "draft",
-            variants: [
-              {
-                price: product.price,
-                cost: product.cost
-              }
-            ],
-            images: product.imageUrl
-              ? [{ src: product.imageUrl }]
-              : [],
-            metafields
-          }
-        })
-      }
-    );
-
-    const text = await res.text();
-    console.log("SHOPIFY RAW RESPONSE:", text);
-
-    if (res.ok) {
-      const data = JSON.parse(text);
-
-      if (!data.product || !data.product.id) {
-        throw new Error("Shopify response missing product");
-      }
-
-      console.log("SHOPIFY SUCCESS: Product created", data.product.id);
-      return data.product;
-    }
-
-    // Handle 422 metafield type errors by retrying without problematic fields
-    if (res.status === 422 && metafields.length > 0) {
-      try {
-        const errorData = JSON.parse(text);
-        
-        // Check if it's a metafield type error
-        if (errorData.errors?.type || errorData.errors?.metafields) {
-          console.log("SHOPIFY: Metafield type mismatch detected, removing problematic fields");
-          
-          // Try to identify which metafields are problematic from the error
-          const errorStr = JSON.stringify(errorData.errors);
-          
-          // Remove metafields one by one based on type mismatch
-          const listFields = metafields.filter(m => m.type === "list.single_line_text_field");
-          const singleFields = metafields.filter(m => m.type === "single_line_text_field");
-          
-          if (errorStr.includes("'list.single_line_text_field' must be consistent")) {
-            // Some list fields should be single - convert them
-            metafields = metafields.map(m => {
-              if (m.type === "list.single_line_text_field") {
-                // Try to convert to single value
-                try {
-                  const arr = JSON.parse(m.value);
-                  return {
-                    ...m,
-                    type: "single_line_text_field",
-                    value: Array.isArray(arr) ? arr[0] || "" : String(m.value)
-                  };
-                } catch {
-                  return { ...m, type: "single_line_text_field" };
-                }
-              }
-              return m;
-            });
-            console.log("SHOPIFY: Converted list fields to single fields");
-            continue;
-          }
-          
-          if (errorStr.includes("'single_line_text_field' must be consistent")) {
-            // Some single fields should be list - convert them
-            metafields = metafields.map(m => {
-              if (m.type === "single_line_text_field") {
-                return {
-                  ...m,
-                  type: "list.single_line_text_field",
-                  value: JSON.stringify([m.value].filter(Boolean))
-                };
-              }
-              return m;
-            });
-            console.log("SHOPIFY: Converted single fields to list fields");
-            continue;
-          }
-          
-          // If we can't identify the specific issue, remove all metafields and retry
-          console.log("SHOPIFY: Removing all metafields and retrying");
-          metafields = [];
-          continue;
-        }
-      } catch (parseErr) {
-        console.log("SHOPIFY: Could not parse error response");
-      }
-    }
-
-    // If we get here, it's a non-recoverable error
-    throw new Error(`Shopify API error (${res.status}): ${text}`);
+  if (res.ok) {
+    return parseSuccess(text);
   }
 
-  throw new Error("Shopify: Max retry attempts exceeded");
+  // Attempt 2: Without metafields (fallback)
+  if (res.status === 422) {
+    console.log("SHOPIFY: Metafield error, retrying without metafields");
+    
+    res = await makeRequest(product, []);
+    text = await res.text();
+    console.log("SHOPIFY RAW RESPONSE (no metafields):", text);
+
+    if (res.ok) {
+      console.log("SHOPIFY: Product created without metafields - add them manually in Shopify admin");
+      return parseSuccess(text);
+    }
+  }
+
+  throw new Error(`Shopify API error (${res.status}): ${text}`);
+}
+
+async function makeRequest(product, metafields) {
+  return fetch(
+    `https://${SHOP}/admin/api/2024-01/products.json`,
+    {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": TOKEN,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        product: {
+          title: product.title,
+          body_html: product.description,
+          status: "draft",
+          variants: [
+            {
+              price: product.price,
+              cost: product.cost
+            }
+          ],
+          images: product.imageUrl
+            ? [{ src: product.imageUrl }]
+            : [],
+          metafields
+        }
+      })
+    }
+  );
+}
+
+function parseSuccess(text) {
+  const data = JSON.parse(text);
+
+  if (!data.product || !data.product.id) {
+    throw new Error("Shopify response missing product");
+  }
+
+  console.log("SHOPIFY SUCCESS: Product created", data.product.id);
+  return data.product;
 }

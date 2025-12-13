@@ -47,17 +47,21 @@ export async function runPipeline({ image, cost, price, notes }) {
       cost,
       imageUrl: finalImageUrl,
       metafields: [
+        // List fields (tasting notes, cask wood)
         mfList("nose", aiData.nose),
         mfList("palate", aiData.palate),
         mfList("finish", aiData.finish),
-        mf("sub_type", aiData.sub_type),
-        mfList("country_of_origin", aiData.country),  // Changed to list type
-        mf("region", aiData.region),
         mfList("cask_wood", aiData.cask_wood),
+        
+        // Single text fields
+        mf("sub_type", aiData.sub_type),
+        mf("country_of_origin", aiData.country),
+        mf("region", aiData.region),
         mf("finish_type", aiData.finish_type),
         mf("age_statement", aiData.age_statement),
         mf("alcohol_by_volume", aiData.abv),
 
+        // Boolean fields
         mb("finished", aiData.finished),
         mb("store_pick", aiData.store_pick),
         mb("cask_strength", aiData.cask_strength),
