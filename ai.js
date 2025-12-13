@@ -37,6 +37,12 @@ RULES:
 - Use realistic ABV ranges if not clearly stated on the label
 - Prefer what is visible on the label over assumptions
 
+IMPORTANT: For cask_wood, you MUST use ONLY these exact values (can be an array for multiple):
+["American White Oak", "European Oak", "French Oak", "Ex-Bourbon Barrels", "Sherry Casks", "Pedro Ximénez", "Fino / Amontillado", "Rum Casks", "Wine Cask", "Port Cask", "Madeira Casks", "Cognac or Brandy Casks", "Beer Cask", "Mizunara Oak", "Amburana Cask", "Chinquapin Oak", "Other"]
+
+IMPORTANT: For country, you MUST use ONLY these exact values:
+["USA", "Ireland", "Scotland", "Canada", "Japan", "India", "Taiwan", "England", "France", "Mexico", "Italy", "Portugal", "Other"]
+
 Return JSON in this exact structure.
 `;
 
@@ -122,9 +128,55 @@ if (data.tasting_notes) {
 data.sub_type = data.sub_type || "Straight Bourbon Whiskey";
 data.country = data.country || "USA";
 data.region = data.region || "Kentucky";
-data.cask_wood = data.cask_wood || "American Oak";
+data.cask_wood = data.cask_wood || "American White Oak";
 data.finish_type = data.finish_type || "None";
 data.age_statement = data.age_statement || "NAS";
+
+// Valid choices for Shopify metafields (must match exactly)
+const VALID_CASK_WOODS = [
+  "American White Oak", "European Oak", "French Oak", "Ex-Bourbon Barrels",
+  "Sherry Casks", "Pedro Ximénez", "Fino / Amontillado", "Rum Casks",
+  "Wine Cask", "Port Cask", "Madeira Casks", "Cognac or Brandy Casks",
+  "Beer Cask", "Mizunara Oak", "Amburana Cask", "Chinquapin Oak", "Other"
+];
+
+const VALID_COUNTRIES = [
+  "USA", "Ireland", "Scotland", "Canada", "Japan", "India",
+  "Taiwan", "England", "France", "Mexico", "Italy", "Portugal", "Other"
+];
+
+// Normalize cask_wood to valid choices
+if (data.cask_wood) {
+  const caskWoods = Array.isArray(data.cask_wood) ? data.cask_wood : [data.cask_wood];
+  data.cask_wood = caskWoods.map(cw => {
+    // Try exact match first
+    if (VALID_CASK_WOODS.includes(cw)) return cw;
+    // Try case-insensitive match
+    const match = VALID_CASK_WOODS.find(v => v.toLowerCase() === cw.toLowerCase());
+    if (match) return match;
+    // Common mappings
+    if (cw.toLowerCase().includes("american") && cw.toLowerCase().includes("oak")) return "American White Oak";
+    if (cw.toLowerCase().includes("sherry")) return "Sherry Casks";
+    if (cw.toLowerCase().includes("bourbon")) return "Ex-Bourbon Barrels";
+    // Default to Other if no match
+    console.warn(`Unknown cask_wood value "${cw}", defaulting to "Other"`);
+    return "Other";
+  });
+}
+
+// Normalize country to valid choice
+if (data.country) {
+  const country = String(data.country);
+  if (!VALID_COUNTRIES.includes(country)) {
+    const match = VALID_COUNTRIES.find(v => v.toLowerCase() === country.toLowerCase());
+    if (match) {
+      data.country = match;
+    } else {
+      console.warn(`Unknown country value "${country}", defaulting to "Other"`);
+      data.country = "Other";
+    }
+  }
+}
 
 // Boolean defaults
 data.finished = Boolean(data.finished);

@@ -51,7 +51,7 @@ export async function runPipeline({ image, cost, price, notes }) {
         mfList("palate", aiData.palate),
         mfList("finish", aiData.finish),
         mf("sub_type", aiData.sub_type),
-        mf("country_of_origin", aiData.country),
+        mfList("country_of_origin", aiData.country),  // Changed to list type
         mf("region", aiData.region),
         mfList("cask_wood", aiData.cask_wood),
         mf("finish_type", aiData.finish_type),
