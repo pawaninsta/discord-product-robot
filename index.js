@@ -67,11 +67,11 @@ client.on("interactionCreate", async interaction => {
 
     if (logThread) {
       await interaction.editReply({
-        content: `🧪 Working on it… Logs will be posted in ${logThread}. I’ll ping you in the channel when it’s done.`
+        content: `🧪 Working on it… Logs will be posted in ${logThread}. I'll ping you in the thread when it's done.`
       });
     } else {
       await interaction.editReply({
-        content: "🧪 Working on it… (I couldn’t create a log thread; falling back to the webhook logger if configured.)"
+        content: "🧪 Working on it… (I couldn't create a log thread; falling back to the webhook logger if configured.)"
       });
     }
 
@@ -89,27 +89,38 @@ client.on("interactionCreate", async interaction => {
     });
 
     const mention = `<@${interaction.user.id}>`;
-    const channel = interaction.channel;
 
     if (result?.ok) {
       const lines = [
         `${mention} ✅ Product creation finished.`,
         result.adminUrl ? `Draft: ${result.adminUrl}` : "",
-        result.needsAbv ? "⚠️ ABV/proof wasn’t found with confidence, so **Alcohol by Volume** was left blank." : "",
-        logThread?.url ? `Logs: ${logThread.url}` : ""
+        result.needsAbv ? "⚠️ ABV/proof wasn't found with confidence, so **Alcohol by Volume** was left blank." : ""
       ].filter(Boolean);
 
-      if (channel?.send) await channel.send({ content: lines.join("\n") });
-      await interaction.editReply({ content: "✅ Done. (I posted the final result in the channel.)" });
+      if (logThread) {
+        await logThread.send({ content: lines.join("\n") });
+        await interaction.editReply({ content: "✅ Done. Check the thread for details." });
+      } else {
+        // Fallback: if no thread, post to main channel
+        const channel = interaction.channel;
+        if (channel?.send) await channel.send({ content: lines.join("\n") });
+        await interaction.editReply({ content: "✅ Done. (I posted the result in the channel.)" });
+      }
     } else {
       const errText = result?.error ? String(result.error) : "Unknown error";
       const lines = [
-        `${mention} ❌ Product creation failed: ${errText}`,
-        logThread?.url ? `Logs: ${logThread.url}` : ""
+        `${mention} ❌ Product creation failed: ${errText}`
       ].filter(Boolean);
 
-      if (channel?.send) await channel.send({ content: lines.join("\n") });
-      await interaction.editReply({ content: "❌ Failed. (I posted details in the channel.)" });
+      if (logThread) {
+        await logThread.send({ content: lines.join("\n") });
+        await interaction.editReply({ content: "❌ Failed. Check the thread for details." });
+      } else {
+        // Fallback: if no thread, post to main channel
+        const channel = interaction.channel;
+        if (channel?.send) await channel.send({ content: lines.join("\n") });
+        await interaction.editReply({ content: "❌ Failed. (I posted details in the channel.)" });
+      }
     }
   }
 });
