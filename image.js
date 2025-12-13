@@ -9,6 +9,10 @@ export async function generateStudioImage(imageUrl) {
   console.log("IMAGE: Generating studio product shot");
   console.log("IMAGE: Input URL:", imageUrl);
 
+  // #region agent log
+  (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H1',location:'image.js:12',message:'generateStudioImage entry',data:{hasGoogleAiKey:Boolean(process.env.GOOGLE_AI_API_KEY),imageUrlHost:(()=>{try{return new URL(imageUrl).host;}catch{return null;}})()},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
+  // #endregion
+
   if (!process.env.GOOGLE_AI_API_KEY) {
     console.warn("IMAGE: GOOGLE_AI_API_KEY not configured, using original image");
     return imageUrl;
@@ -45,6 +49,9 @@ async function generateWithGemini(imageUrl) {
 
   // Fetch the image and convert to base64
   const imageResponse = await fetch(imageUrl);
+  // #region agent log
+  (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H2',location:'image.js:48',message:'Fetched input image for Gemini',data:{status:imageResponse.status,ok:imageResponse.ok,contentType:imageResponse.headers.get("content-type")||null},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
+  // #endregion
   const imageBuffer = await imageResponse.arrayBuffer();
   const base64Image = Buffer.from(imageBuffer).toString("base64");
   const mimeType = imageResponse.headers.get("content-type") || "image/png";
@@ -71,6 +78,9 @@ Do not alter the product in any way - just isolate it and place it on the white 
     // Check if the response contains an image
     if (response.candidates && response.candidates[0]) {
       const candidate = response.candidates[0];
+      // #region agent log
+      (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'image.js:76',message:'Gemini response candidate shape',data:{hasContent:Boolean(candidate.content),partsCount:Array.isArray(candidate.content?.parts)?candidate.content.parts.length:0,hasInlineData:Array.isArray(candidate.content?.parts)?candidate.content.parts.some(p=>Boolean(p?.inlineData?.data)):false},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
+      // #endregion
       
       // Look for inline image data in the response
       if (candidate.content && candidate.content.parts) {

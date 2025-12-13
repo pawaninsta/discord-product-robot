@@ -14,6 +14,10 @@ export async function generateProductData({ notes, imageUrl, webResearch }) {
   console.log("AI IMAGE URL:", imageUrl);
   console.log("AI WEB RESEARCH:", webResearch ? "Available" : "None");
 
+  // #region agent log
+  (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4',location:'ai.js:16',message:'generateProductData entry',data:{hasImageUrl:Boolean(imageUrl),imageUrlHost:(()=>{try{return new URL(imageUrl).host;}catch{return null;}})(),notesLen:(notes||"").length,hasWebResearch:Boolean(webResearch?.summary)},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
+  // #endregion
+
   if (!imageUrl) {
     throw new Error("generateProductData requires imageUrl");
   }
@@ -240,6 +244,10 @@ REMEMBER: Our customers are collectors who know whiskey. Tell them WHY this bott
     console.error("RAW STRING:", raw);
     throw new Error("AI returned invalid JSON");
   }
+
+  // #region agent log
+  (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H5',location:'ai.js:244',message:'AI parsed JSON top-level fields',data:{keys:Object.keys(data||{}).slice(0,40),vendor:data?.vendor||null,product_type:data?.product_type||null,sub_type:data?.sub_type||null,country:data?.country||null,region:data?.region||null,noseIsArray:Array.isArray(data?.nose),palateIsArray:Array.isArray(data?.palate),finishIsArray:Array.isArray(data?.finish),store_pick:data?.store_pick,single_barrel:data?.single_barrel},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
+  // #endregion
 
   // -------------------------
   // NORMALIZE AI SCHEMA

@@ -13,6 +13,10 @@ export async function createDraftProduct(product) {
   console.log("SHOPIFY: Creating draft product");
   console.log("SHOPIFY PAYLOAD:", JSON.stringify(product, null, 2));
 
+  // #region agent log
+  (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H8',location:'shopify.js:16',message:'createDraftProduct entry',data:{incomingVendor:product?.vendor||null,incomingProductType:product?.product_type||null,metafieldsCount:Array.isArray(product?.metafields)?product.metafields.length:0,metafieldKeys:Array.isArray(product?.metafields)?product.metafields.map(m=>m.key).slice(0,30):[]},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
+  // #endregion
+
   // Step 1: Create the product (without metafields to avoid type errors)
   const productData = await createProduct(product);
   
@@ -154,6 +158,10 @@ async function updateMetafields(productId, metafields) {
 
     const data = await res.json();
     console.log("SHOPIFY: GraphQL response:", JSON.stringify(data, null, 2));
+
+    // #region agent log
+    (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H9',location:'shopify.js:156',message:'updateMetafields result summary',data:{httpOk:res.ok,hasTopLevelErrors:Boolean(data?.errors?.length),userErrors:(data?.data?.productUpdate?.userErrors||[]).map(e=>({field:e.field?.join('.')||null,message:e.message})).slice(0,10),attemptedKeys:metafieldsInput.map(m=>m.key).slice(0,30)},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
+    // #endregion
 
     if (data.errors) {
       console.error("SHOPIFY: GraphQL errors:", data.errors);
