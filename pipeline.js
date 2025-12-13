@@ -93,10 +93,10 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
 
         const specsStatus = specs?.status || (specs ? "ok" : "error");
         const tastingStatus = tasting?.status || (tasting ? "ok" : "error");
-        const errorMessage =
-          specs?.errorMessage ||
-          tasting?.errorMessage ||
-          "";
+        const errorMessage = specs?.errorMessage || tasting?.errorMessage || "";
+        const errorHint = specs?.errorHint || tasting?.errorHint || "";
+        const statusCode = Number(specs?.statusCode || tasting?.statusCode || 0);
+        const errorStatus = String(specs?.errorStatus || tasting?.errorStatus || "");
 
         // Roll up status for downstream prompt + UX.
         let status = "ok";
@@ -106,7 +106,10 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
         webResearch = {
           query: fallbackQuery,
           status,
+          statusCode,
+          errorStatus,
           errorMessage,
+          errorHint,
           summary: specs?.summary || "",
           results: specs?.results || [],
           tastingNotesSummary: tasting?.tastingNotesSummary || "",
@@ -115,7 +118,14 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
 
         // Surface failures loudly so you immediately know why notes may be generic.
         if (status === "error" && errorMessage) {
-          await send(`⚠️ Web research failed: ${errorMessage}. I’ll infer tasting notes from label/producer patterns unless you fix the search key.`);
+          const bits = [
+            "⚠️ Web research failed",
+            statusCode ? `(Google CSE ${statusCode}${errorStatus ? ` ${errorStatus}` : ""})` : "",
+            `: ${errorMessage}`,
+            errorHint ? `\nHint: ${errorHint}` : "",
+            "\nI’ll infer tasting notes from label/producer patterns unless you fix the search setup."
+          ].filter(Boolean);
+          await send(bits.join(""));
         } else if (status === "disabled") {
           await send("ℹ️ Web research is disabled (missing GOOGLE_API_KEY/GOOGLE_CX). I’ll infer tasting notes from label/producer patterns.");
         } else if (status === "ok" && !webResearch.tastingNotesSummary) {

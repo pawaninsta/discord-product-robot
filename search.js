@@ -3,6 +3,30 @@ import fetch from "node-fetch";
 const GOOGLE_API_KEY = (process.env.GOOGLE_API_KEY || "").trim();
 const RAW_GOOGLE_CX = (process.env.GOOGLE_CX || "").trim(); // Custom Search Engine ID
 
+function googleCseHint(statusCode, errorMessage) {
+  const msg = String(errorMessage || "");
+  const m = msg.toLowerCase();
+
+  // Common actionable cases seen with Google Custom Search JSON API.
+  if (statusCode === 403 && (m.includes("has not been used") || m.includes("it is disabled"))) {
+    return "Enable the Custom Search API for the GCP project that owns this API key.";
+  }
+  if ((statusCode === 400 || statusCode === 403) && m.includes("api key not valid")) {
+    return "GOOGLE_API_KEY is invalid (wrong key/project) or was deleted/rotated. Create a new key and update Railway.";
+  }
+  if ((statusCode === 403 || statusCode === 429) && (m.includes("quota") || m.includes("rate limit") || m.includes("daily limit"))) {
+    return "Custom Search quota/rate limit exceeded. Check Quotas + billing for the GCP project.";
+  }
+  if (statusCode === 400 && (m.includes("invalid") || m.includes("cx")) && m.includes("cx")) {
+    return "GOOGLE_CX looks invalid. Use the Programmable Search Engine 'Search engine ID' (cx=...).";
+  }
+  if (statusCode === 403 && m.includes("billing")) {
+    return "Billing is required/disabled for this GCP project. Attach a billing account and retry.";
+  }
+
+  return "";
+}
+
 function normalizeCx(raw) {
   if (!raw) return "";
   // If user pasted a full URL or querystring containing cx=..., extract it.
@@ -43,7 +67,8 @@ async function googleCseSearch({ q, num = 5 }) {
       (typeof bodyText === "string" && bodyText.trim() ? bodyText.trim().slice(0, 500) : "") ||
       `Google CSE error (${res.status})`;
 
-    console.warn("SEARCH: Google API error:", res.status, msg);
+    const hint = googleCseHint(res.status, msg);
+    console.warn("SEARCH: Google API error:", res.status, msg, hint ? `| Hint: ${hint}` : "");
     if (res.status === 400) {
       console.warn("SEARCH: Hint: verify GOOGLE_CX is the CSE ID (not a full URL), Custom Search API is enabled, and the API key allows requests from Railway.");
     }
@@ -51,7 +76,9 @@ async function googleCseSearch({ q, num = 5 }) {
     return {
       ok: false,
       statusCode: res.status,
-      errorMessage: msg
+      errorMessage: msg,
+      errorStatus: parsed?.error?.status || "",
+      errorHint: hint
     };
   }
 
@@ -91,7 +118,15 @@ export async function searchWhiskeyInfo(query) {
     const resp = await googleCseSearch({ q: `${safeQuery} whiskey bourbon specs ABV age`, num: 5 });
     if (!resp) return { status: "disabled", results: [], summary: "", errorMessage: "" };
     if (!resp.ok) {
-      return { status: "error", results: [], summary: "", errorMessage: resp.errorMessage || "" };
+      return {
+        status: "error",
+        statusCode: resp.statusCode,
+        errorStatus: resp.errorStatus || "",
+        errorHint: resp.errorHint || "",
+        results: [],
+        summary: "",
+        errorMessage: resp.errorMessage || ""
+      };
     }
 
     const results = resp.results || [];
@@ -106,11 +141,20 @@ export async function searchWhiskeyInfo(query) {
       status: "ok",
       results,
       summary,
-      errorMessage: ""
+      errorMessage: "",
+      statusCode: resp.statusCode
     };
   } catch (err) {
     console.error("SEARCH: Error:", err.message);
-    return { status: "error", results: [], summary: "", errorMessage: err?.message || String(err) };
+    return {
+      status: "error",
+      results: [],
+      summary: "",
+      errorMessage: err?.message || String(err),
+      statusCode: 0,
+      errorStatus: "",
+      errorHint: ""
+    };
   }
 }
 
@@ -140,12 +184,20 @@ export async function searchTastingNotes(query) {
 
   const all = [];
   let firstError = "";
+  let firstStatusCode = 0;
+  let firstHint = "";
+  let firstErrorStatus = "";
   for (const p of probes) {
     try {
       const res = await googleCseSearch({ q: p.q, num: p.num });
       if (!res) continue;
       if (!res.ok) {
-        if (!firstError) firstError = res.errorMessage || "";
+        if (!firstError) {
+          firstError = res.errorMessage || "";
+          firstStatusCode = Number(res.statusCode || 0);
+          firstHint = String(res.errorHint || "");
+          firstErrorStatus = String(res.errorStatus || "");
+        }
         continue;
       }
       const results = (res.results || []).map(r => ({ ...r, source: p.source }));
@@ -158,9 +210,17 @@ export async function searchTastingNotes(query) {
   if (all.length === 0) {
     // If every probe failed with an API error, keep the errorMessage for downstream UX.
     if (firstError) {
-      return { status: "error", results: [], tastingNotesSummary: "", errorMessage: firstError };
+      return {
+        status: "error",
+        results: [],
+        tastingNotesSummary: "",
+        errorMessage: firstError,
+        statusCode: firstStatusCode,
+        errorStatus: firstErrorStatus,
+        errorHint: firstHint
+      };
     }
-    return { status: "ok", results: [], tastingNotesSummary: "", errorMessage: "" };
+    return { status: "ok", results: [], tastingNotesSummary: "", errorMessage: "", statusCode: 200 };
   }
 
   // De-dupe by link.
@@ -183,7 +243,8 @@ export async function searchTastingNotes(query) {
     status: "ok",
     results: deduped,
     tastingNotesSummary,
-    errorMessage: ""
+    errorMessage: "",
+    statusCode: 200
   };
 }
 
