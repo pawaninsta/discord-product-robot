@@ -66,7 +66,12 @@ export async function runPipeline({ image, cost, price, notes }) {
       ]
     });
 
-    const adminUrl = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/products/${product.id}`;
+    if (!product || !product.id) {
+  throw new Error("Shopify product creation failed");
+}
+
+const adminUrl = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/products/${product.id}`;
+
 
     await send(`✅ Draft created: ${adminUrl}`);
     console.log("PIPELINE SUCCESS:", adminUrl);
