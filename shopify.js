@@ -4,106 +4,40 @@ const SHOP = process.env.SHOPIFY_STORE_DOMAIN;
 const TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
 
 /**
- * Metafield type mapping based on your Shopify store definitions
- * Based on the Product metafields screenshot
+ * Create a draft product with metafields
+ * Uses a two-step process to ensure metafields are saved:
+ * 1. Create product
+ * 2. Update metafields via separate call
  */
-const METAFIELD_TYPES = {
-  // List fields (tasting notes)
-  nose: "list.single_line_text_field",
-  palate: "list.single_line_text_field",
-  finish: "list.single_line_text_field",
-  cask_wood: "list.single_line_text_field",
-  
-  // Single text fields
-  sub_type: "single_line_text_field",
-  country_of_origin: "single_line_text_field",
-  region: "single_line_text_field",
-  finish_type: "single_line_text_field",
-  age_statement: "single_line_text_field",
-  alcohol_by_volume: "single_line_text_field",
-  awards: "single_line_text_field",
-  gift_pack: "single_line_text_field",
-  
-  // Boolean fields
-  finished: "boolean",
-  store_pick: "boolean",
-  cask_strength: "boolean",
-  single_barrel: "boolean",
-  limited_time_offer: "boolean"
-};
-
-/**
- * Fix metafield types to match Shopify definitions
- */
-function fixMetafieldTypes(metafields) {
-  return metafields.map(mf => {
-    const correctType = METAFIELD_TYPES[mf.key];
-    
-    if (!correctType || mf.type === correctType) {
-      return mf;
-    }
-    
-    console.log(`SHOPIFY: Fixing ${mf.key} from ${mf.type} to ${correctType}`);
-    
-    // Convert list to single
-    if (mf.type === "list.single_line_text_field" && correctType === "single_line_text_field") {
-      let value = mf.value;
-      try {
-        const arr = JSON.parse(mf.value);
-        value = Array.isArray(arr) ? arr[0] || "" : String(mf.value);
-      } catch {
-        value = String(mf.value);
-      }
-      return { ...mf, type: correctType, value };
-    }
-    
-    // Convert single to list
-    if (mf.type === "single_line_text_field" && correctType === "list.single_line_text_field") {
-      const value = JSON.stringify([mf.value].filter(Boolean));
-      return { ...mf, type: correctType, value };
-    }
-    
-    return { ...mf, type: correctType };
-  });
-}
-
 export async function createDraftProduct(product) {
   console.log("SHOPIFY: Creating draft product");
   console.log("SHOPIFY PAYLOAD:", JSON.stringify(product, null, 2));
 
-  // Fix metafield types before first attempt
-  let metafields = fixMetafieldTypes(product.metafields || []);
+  // Step 1: Create the product (without metafields to avoid type errors)
+  const productData = await createProduct(product);
   
-  // Attempt 1: With corrected metafields
-  console.log(`SHOPIFY: Attempt 1 with ${metafields.length} metafields`);
-  
-  let res = await makeRequest(product, metafields);
-  let text = await res.text();
-  console.log("SHOPIFY RAW RESPONSE:", text);
-
-  if (res.ok) {
-    return parseSuccess(text);
+  if (!productData || !productData.id) {
+    throw new Error("Shopify product creation failed");
   }
 
-  // Attempt 2: Without metafields (fallback)
-  if (res.status === 422) {
-    console.log("SHOPIFY: Metafield error, retrying without metafields");
-    
-    res = await makeRequest(product, []);
-    text = await res.text();
-    console.log("SHOPIFY RAW RESPONSE (no metafields):", text);
+  console.log("SHOPIFY: Product created:", productData.id);
 
-    if (res.ok) {
-      console.log("SHOPIFY: Product created without metafields - add them manually in Shopify admin");
-      return parseSuccess(text);
-    }
+  // Step 2: Update metafields via GraphQL (more reliable)
+  if (product.metafields && product.metafields.length > 0) {
+    await updateMetafields(productData.id, product.metafields);
   }
 
-  throw new Error(`Shopify API error (${res.status}): ${text}`);
+  // Step 3: Publish to all sales channels
+  await publishToAllChannels(productData.id);
+
+  return productData;
 }
 
-async function makeRequest(product, metafields) {
-  return fetch(
+/**
+ * Create the base product
+ */
+async function createProduct(product) {
+  const res = await fetch(
     `https://${SHOP}/admin/api/2024-01/products.json`,
     {
       method: "POST",
@@ -118,6 +52,7 @@ async function makeRequest(product, metafields) {
           vendor: product.vendor || "The Whiskey Library",
           product_type: product.product_type || "",
           status: "draft",
+          published_scope: "global", // Publish to all channels
           variants: [
             {
               price: product.price,
@@ -131,24 +66,254 @@ async function makeRequest(product, metafields) {
           ],
           images: product.imageUrl
             ? [{ src: product.imageUrl }]
-            : [],
-          metafields
+            : []
         }
       })
     }
   );
-}
 
-function parseSuccess(text) {
+  const text = await res.text();
+  console.log("SHOPIFY: Create product response:", text);
+
+  if (!res.ok) {
+    throw new Error(`Shopify API error (${res.status}): ${text}`);
+  }
+
   const data = JSON.parse(text);
-
+  
   if (!data.product || !data.product.id) {
     throw new Error("Shopify response missing product");
   }
 
-  console.log("SHOPIFY SUCCESS: Product created", data.product.id);
-  console.log("SHOPIFY: Vendor set to:", data.product.vendor);
-  console.log("SHOPIFY: Product Type set to:", data.product.product_type);
-  
+  console.log("SHOPIFY: Vendor:", data.product.vendor);
+  console.log("SHOPIFY: Product Type:", data.product.product_type);
+
   return data.product;
+}
+
+/**
+ * Update metafields using GraphQL API (more reliable than REST)
+ */
+async function updateMetafields(productId, metafields) {
+  console.log("SHOPIFY: Updating metafields for product", productId);
+  console.log("SHOPIFY: Metafields to set:", metafields.length);
+
+  // Convert product ID to GraphQL GID format
+  const gid = `gid://shopify/Product/${productId}`;
+
+  // Build metafields array for GraphQL
+  const metafieldsInput = metafields.map(mf => ({
+    namespace: mf.namespace || "custom",
+    key: mf.key,
+    value: mf.value,
+    type: mf.type
+  }));
+
+  const mutation = `
+    mutation productUpdate($input: ProductInput!) {
+      productUpdate(input: $input) {
+        product {
+          id
+          metafields(first: 25) {
+            edges {
+              node {
+                namespace
+                key
+                value
+              }
+            }
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const variables = {
+    input: {
+      id: gid,
+      metafields: metafieldsInput
+    }
+  };
+
+  try {
+    const res = await fetch(
+      `https://${SHOP}/admin/api/2024-01/graphql.json`,
+      {
+        method: "POST",
+        headers: {
+          "X-Shopify-Access-Token": TOKEN,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ query: mutation, variables })
+      }
+    );
+
+    const data = await res.json();
+    console.log("SHOPIFY: GraphQL response:", JSON.stringify(data, null, 2));
+
+    if (data.errors) {
+      console.error("SHOPIFY: GraphQL errors:", data.errors);
+    }
+
+    if (data.data?.productUpdate?.userErrors?.length > 0) {
+      console.error("SHOPIFY: User errors:", data.data.productUpdate.userErrors);
+      
+      // Try setting metafields one by one to identify the problem
+      console.log("SHOPIFY: Retrying metafields individually...");
+      await updateMetafieldsIndividually(productId, metafields);
+    } else {
+      console.log("SHOPIFY: Metafields updated successfully");
+      
+      // Log which metafields were set
+      const savedMetafields = data.data?.productUpdate?.product?.metafields?.edges || [];
+      console.log("SHOPIFY: Saved metafields:", savedMetafields.length);
+    }
+
+  } catch (err) {
+    console.error("SHOPIFY: Metafield update failed:", err.message);
+    // Don't throw - product was still created
+  }
+}
+
+/**
+ * Try updating metafields one by one to identify issues
+ */
+async function updateMetafieldsIndividually(productId, metafields) {
+  const gid = `gid://shopify/Product/${productId}`;
+  let successCount = 0;
+
+  for (const mf of metafields) {
+    const mutation = `
+      mutation productUpdate($input: ProductInput!) {
+        productUpdate(input: $input) {
+          product { id }
+          userErrors { field message }
+        }
+      }
+    `;
+
+    const variables = {
+      input: {
+        id: gid,
+        metafields: [{
+          namespace: mf.namespace || "custom",
+          key: mf.key,
+          value: mf.value,
+          type: mf.type
+        }]
+      }
+    };
+
+    try {
+      const res = await fetch(
+        `https://${SHOP}/admin/api/2024-01/graphql.json`,
+        {
+          method: "POST",
+          headers: {
+            "X-Shopify-Access-Token": TOKEN,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ query: mutation, variables })
+        }
+      );
+
+      const data = await res.json();
+      
+      if (data.data?.productUpdate?.userErrors?.length > 0) {
+        console.error(`SHOPIFY: Failed to set ${mf.key}:`, data.data.productUpdate.userErrors[0].message);
+      } else {
+        console.log(`SHOPIFY: Successfully set ${mf.key}`);
+        successCount++;
+      }
+
+    } catch (err) {
+      console.error(`SHOPIFY: Error setting ${mf.key}:`, err.message);
+    }
+  }
+
+  console.log(`SHOPIFY: Set ${successCount}/${metafields.length} metafields individually`);
+}
+
+/**
+ * Publish product to all sales channels
+ */
+async function publishToAllChannels(productId) {
+  console.log("SHOPIFY: Publishing to all sales channels");
+
+  const gid = `gid://shopify/Product/${productId}`;
+
+  // First, get all publication IDs
+  const publicationsQuery = `
+    query {
+      publications(first: 20) {
+        edges {
+          node {
+            id
+            name
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const pubRes = await fetch(
+      `https://${SHOP}/admin/api/2024-01/graphql.json`,
+      {
+        method: "POST",
+        headers: {
+          "X-Shopify-Access-Token": TOKEN,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ query: publicationsQuery })
+      }
+    );
+
+    const pubData = await pubRes.json();
+    const publications = pubData.data?.publications?.edges || [];
+    
+    console.log("SHOPIFY: Found publications:", publications.map(p => p.node.name).join(", "));
+
+    // Publish to each channel
+    for (const pub of publications) {
+      const publishMutation = `
+        mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
+          publishablePublish(id: $id, input: $input) {
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `;
+
+      await fetch(
+        `https://${SHOP}/admin/api/2024-01/graphql.json`,
+        {
+          method: "POST",
+          headers: {
+            "X-Shopify-Access-Token": TOKEN,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            query: publishMutation,
+            variables: {
+              id: gid,
+              input: [{ publicationId: pub.node.id }]
+            }
+          })
+        }
+      );
+    }
+
+    console.log("SHOPIFY: Published to all channels");
+
+  } catch (err) {
+    console.error("SHOPIFY: Failed to publish to channels:", err.message);
+    // Don't throw - product was still created
+  }
 }

@@ -19,43 +19,66 @@ export async function generateProductData({ notes, imageUrl, webResearch }) {
   }
 
   const systemPrompt = `
-You are a whiskey expert and e-commerce copywriter for The Whiskey Library.
-
-You are generating a Shopify product listing for a spirit bottle.
+You are an expert whiskey copywriter and SEO specialist for The Whiskey Library, a premium spirits retailer.
 
 You can SEE the bottle image and must READ THE LABEL CAREFULLY to extract ALL information.
 
-## CRITICAL: READ THE LABEL THOROUGHLY
+## YOUR MISSION
+Create a compelling, SEO-optimized product listing that will rank well in search and convert browsers into buyers.
 
-Look for and extract:
-- Brand name (this becomes the "vendor")
-- Product name / Expression name
+## CRITICAL: READ THE LABEL THOROUGHLY
+Extract EVERY detail visible on the bottle:
+- Brand name / Distillery (this is the VENDOR)
+- Full product name / Expression name
 - Age statement (look for "X Years Old", "Aged X Years", etc.)
 - ABV / Proof (convert proof to ABV: proof ÷ 2 = ABV%)
+- Bottle size (750ml, 1L, etc.) - default to 750ml if not visible
 - Batch number / Barrel number
-- Bottled-in-Bond designation
+- Bottled-in-Bond designation (BiB, Bottled in Bond)
 - Single Barrel designation
 - Cask Strength / Barrel Proof designation
 - Special finishes mentioned
 - Distillery location / state / country
-- Volume (750ml, 1L, etc.)
 - Any awards or accolades shown
+- Mashbill if stated
 
-## RULES:
-- You MUST return valid JSON only
-- You MUST fill in every field
-- Extract brand name separately - this is the VENDOR field
-- If age is not stated, use "NAS" (No Age Statement)
-- If ABV is shown as proof, convert it (proof ÷ 2)
-- Be accurate - don't guess ages or batch numbers
-- Use web research data if provided to fill gaps
+## TITLE FORMAT
+Include the bottle size in the title:
+"[Brand] [Product Name] [Age if applicable] [Size]"
+Example: "Buffalo Trace Kentucky Straight Bourbon Whiskey 750ml"
+Example: "Blanton's Single Barrel Bourbon 750ml"
+Example: "Elijah Craig Small Batch 12 Year 750ml"
+
+## DESCRIPTION FORMAT (SEO-OPTIMIZED)
+Write a compelling 4-5 sentence narrative description that includes:
+1. Opening hook with the brand name and what makes this bottle special
+2. Brand history or distillery heritage (if known, otherwise focus on the style)
+3. Production details (mash bill, aging, cask type, proof)
+4. Flavor profile preview that entices the reader
+5. Perfect occasions or pairings
+
+Use natural SEO keywords: bourbon, whiskey, single barrel, small batch, Kentucky, Tennessee, craft distillery, premium spirits, etc.
+
+Do NOT include:
+- Pricing information
+- External links
+- The word "Discover" as the first word
+- Generic phrases like "crafted with care"
+
+## TASTING NOTES
+Use these specific vocabulary terms (pick 3-5 for each):
+
+NOSE: vanilla, caramel, toffee, honey, brown sugar, chocolate, cocoa, coffee, dried fruit, raisin, date, fig, red fruit, cherry, stone fruit, orchard fruit, apple, pear, citrus, orange peel, tropical, malt, biscuit, nutty, almond, hazelnut, peanut brittle, baking spice, cinnamon, clove, nutmeg, pepper, herbal, floral, oak, cedar, tobacco, leather, smoke, peat, maritime, brine, earthy, mint, eucalyptus, corn, grain, butterscotch, maple
+
+PALATE: (same vocabulary as nose)
+
+FINISH: short, medium, long, lingering, warm, spicy, sweet, dry, oaky, smooth, bold, complex, clean, rich
 
 ## PRODUCT TYPES (pick one):
 American Whiskey, Scotch Whisky, Irish Whiskey, Japanese Whisky, World Whiskey, Rum, Brandy, Tequila, Cognac, Mezcal, Liqueur, Other
 
-## SUB-TYPES by category:
-
-**American Whiskey:** Bourbon, Straight Bourbon, Rye, Straight Rye, American Single Malt, Wheat Whiskey, Corn Whiskey, Tennessee Whiskey, Blended American, Other
+## SUB-TYPES:
+**American Whiskey:** Bourbon, Straight Bourbon, Rye, Straight Rye, American Single Malt, Wheat Whiskey, Corn Whiskey, Tennessee Whiskey, Blended American
 **Scotch Whisky:** Single Malt, Blended Malt, Blended Scotch, Single Grain, Blended Grain
 **Irish Whiskey:** Single Pot Still, Single Malt, Single Grain, Blended
 **Japanese Whisky:** Single Malt, Blended, Grain
@@ -63,40 +86,37 @@ American Whiskey, Scotch Whisky, Irish Whiskey, Japanese Whisky, World Whiskey, 
 **Cognac:** VS, VSOP, XO, XXO, Hors d'Âge
 **Tequila:** Blanco, Reposado, Añejo, Extra Añejo
 
-## COUNTRIES (pick one):
-USA, Scotland, Ireland, Japan, Canada, Taiwan, India, England, Wales, France, Mexico, Australia, Other
+## COUNTRIES:
+USA, Scotland, Ireland, Japan, Canada, Taiwan, India, England, Wales, France, Mexico, Australia, Caribbean, Other
 
 ## US STATES (if USA):
 Kentucky, Tennessee, Texas, New York, Colorado, Indiana, California, Oregon, Washington, Pennsylvania, Virginia, South Carolina, Other
 
-## CASK WOOD OPTIONS (can be multiple):
+## CASK WOOD OPTIONS (pick applicable):
 American White Oak, European Oak, French Oak, Ex-Bourbon Barrels, Sherry Casks, Pedro Ximénez, Oloroso, Rum Casks, Wine Cask, Port Cask, Madeira Casks, Cognac Casks, Beer Cask, Mizunara Oak, Amburana Cask, Other
 
 ## FINISH TYPES (if secondary finish):
-None, Sherry, Port, Madeira, Wine, Rum, Cognac, Beer/Stout, Maple, Honey, Other
-
-## TASTING NOTE VOCABULARY:
-vanilla, caramel, toffee, honey, brown sugar, chocolate, cocoa, coffee, dried fruit, raisin, date, fig, red fruit, stone fruit, orchard fruit, citrus, tropical, malt, biscuit, nutty, almond, hazelnut, peanut, baking spice, cinnamon, clove, nutmeg, pepper, herbal, floral, oak, cedar, tobacco, leather, smoke, peat, maritime, brine, earthy, mint, eucalyptus, corn, grain, cherry, apple, pear, banana, coconut, butterscotch
+None, Sherry, Port, Madeira, Wine, Rum, Cognac, Beer/Stout, Maple, Honey, Toasted Barrel, Double Oak, Other
 
 Return JSON in this EXACT structure:
 {
   "vendor": "Brand/Distillery Name",
-  "title": "Full Product Name with Age if applicable",
-  "description": "A compelling 2-3 sentence product description",
+  "title": "Full Product Name with Size (e.g., Brand Name Bourbon 750ml)",
+  "description": "4-5 sentence SEO-optimized narrative description...",
   "product_type": "American Whiskey",
   "sub_type": "Straight Bourbon",
-  "nose": ["vanilla", "caramel", "oak"],
-  "palate": ["honey", "spice", "dried fruit"],
-  "finish": ["long", "warm", "oak"],
+  "nose": ["vanilla", "caramel", "oak", "baking spice"],
+  "palate": ["honey", "toffee", "dried fruit", "pepper"],
+  "finish": ["long", "warm", "oaky"],
   "country": "USA",
   "region": "Kentucky",
   "cask_wood": ["American White Oak"],
   "finish_type": "None",
-  "age_statement": "NAS or X Years",
+  "age_statement": "NAS",
   "abv": "45%",
-  "batch_number": "Batch 123 or empty string if none",
-  "barrel_number": "Barrel 456 or empty string if none",
   "volume_ml": 750,
+  "batch_number": "",
+  "barrel_number": "",
   "finished": false,
   "store_pick": false,
   "cask_strength": false,
@@ -110,22 +130,23 @@ Return JSON in this EXACT structure:
   if (webResearch?.summary) {
     webContext = `
 
-## WEB RESEARCH (use to supplement label info):
+## WEB RESEARCH (use to enhance your description with brand history):
 ${webResearch.summary}
 `;
   }
 
   const userPrompt = `
-Optional notes from the user (may be empty or incomplete):
+Optional notes from the user:
 ${notes || "No additional notes provided"}
 ${webContext}
 
 TASK:
 1. CAREFULLY read ALL text on the bottle label
-2. Extract brand name, product name, age, ABV, batch/barrel numbers
-3. Look for special designations (Single Barrel, Cask Strength, Bottled-in-Bond)
-4. Generate complete product listing with accurate extracted information
-5. Use web research data if provided to fill in gaps
+2. Extract: brand, product name, age, ABV, size, batch/barrel numbers
+3. Look for: Single Barrel, Cask Strength, Bottled-in-Bond designations
+4. Write a compelling SEO-optimized description with brand story
+5. Generate accurate tasting notes based on the spirit type
+6. Include bottle size (750ml default) in the title
 `;
 
   let response;
@@ -133,7 +154,7 @@ TASK:
   try {
     response = await openai.chat.completions.create({
       model: "gpt-4o",
-      temperature: 0.3, // Lower temperature for more accurate extraction
+      temperature: 0.4,
       messages: [
         {
           role: "system",
@@ -147,7 +168,7 @@ TASK:
               type: "image_url",
               image_url: {
                 url: imageUrl,
-                detail: "high" // High detail for better label reading
+                detail: "high"
               }
             }
           ]
@@ -182,25 +203,31 @@ TASK:
   // NORMALIZE AI SCHEMA
   // -------------------------
 
+  // Ensure title has size
+  if (data.title && !data.title.includes("ml") && !data.title.includes("L")) {
+    const size = data.volume_ml || 750;
+    data.title = `${data.title} ${size}ml`;
+  }
+
   // Build title if missing
   if (!data.title) {
+    const size = data.volume_ml || 750;
     if (data.vendor && data.product_name) {
-      data.title = `${data.vendor} ${data.product_name}`;
+      data.title = `${data.vendor} ${data.product_name} ${size}ml`;
     } else if (data.product_name) {
-      data.title = data.product_name;
+      data.title = `${data.product_name} ${size}ml`;
     }
   }
 
   // Ensure vendor is set
   if (!data.vendor) {
-    // Try to extract from title
     const titleParts = data.title?.split(" ") || [];
     data.vendor = titleParts[0] || "Unknown";
   }
 
   // Build description if missing
   if (!data.description && data.title) {
-    data.description = `Discover ${data.title}. A premium spirit crafted with care.`;
+    data.description = `${data.title} delivers an exceptional drinking experience. This ${data.sub_type || 'whiskey'} from ${data.region || 'a renowned distillery'} showcases the craftsmanship that has made ${data.vendor} a favorite among spirits enthusiasts. With notes of ${(data.nose || ['oak', 'vanilla']).slice(0, 2).join(' and ')}, this bottle is perfect for sipping neat or in your favorite cocktail.`;
   }
 
   // Flatten tasting notes if nested
@@ -210,6 +237,11 @@ TASK:
     data.finish = data.finish || data.tasting_notes.finish;
   }
 
+  // Ensure arrays for tasting notes
+  if (!Array.isArray(data.nose)) data.nose = data.nose ? [data.nose] : ["vanilla", "oak", "caramel"];
+  if (!Array.isArray(data.palate)) data.palate = data.palate ? [data.palate] : ["honey", "spice", "fruit"];
+  if (!Array.isArray(data.finish)) data.finish = data.finish ? [data.finish] : ["long", "warm"];
+
   // Defaults for missing structured fields
   data.product_type = data.product_type || "American Whiskey";
   data.sub_type = data.sub_type || "Bourbon";
@@ -218,11 +250,16 @@ TASK:
   data.cask_wood = data.cask_wood || ["American White Oak"];
   data.finish_type = data.finish_type || "None";
   data.age_statement = data.age_statement || "NAS";
+  data.volume_ml = data.volume_ml || 750;
   data.batch_number = data.batch_number || "";
   data.barrel_number = data.barrel_number || "";
-  data.volume_ml = data.volume_ml || 750;
 
-  // Valid choices for Shopify metafields (must match exactly)
+  // Ensure cask_wood is array
+  if (!Array.isArray(data.cask_wood)) {
+    data.cask_wood = [data.cask_wood];
+  }
+
+  // Valid choices for Shopify metafields
   const VALID_CASK_WOODS = [
     "American White Oak", "European Oak", "French Oak", "Ex-Bourbon Barrels",
     "Sherry Casks", "Pedro Ximénez", "Oloroso", "Rum Casks",
@@ -232,23 +269,20 @@ TASK:
 
   const VALID_COUNTRIES = [
     "USA", "Scotland", "Ireland", "Japan", "Canada", "Taiwan", "India",
-    "England", "Wales", "France", "Mexico", "Australia", "Other"
+    "England", "Wales", "France", "Mexico", "Australia", "Caribbean", "Other"
   ];
 
   // Normalize cask_wood to valid choices
-  if (data.cask_wood) {
-    const caskWoods = Array.isArray(data.cask_wood) ? data.cask_wood : [data.cask_wood];
-    data.cask_wood = caskWoods.map(cw => {
-      if (VALID_CASK_WOODS.includes(cw)) return cw;
-      const match = VALID_CASK_WOODS.find(v => v.toLowerCase() === cw.toLowerCase());
-      if (match) return match;
-      if (cw.toLowerCase().includes("american") && cw.toLowerCase().includes("oak")) return "American White Oak";
-      if (cw.toLowerCase().includes("sherry")) return "Sherry Casks";
-      if (cw.toLowerCase().includes("bourbon")) return "Ex-Bourbon Barrels";
-      console.warn(`Unknown cask_wood value "${cw}", defaulting to "Other"`);
-      return "Other";
-    });
-  }
+  data.cask_wood = data.cask_wood.map(cw => {
+    if (VALID_CASK_WOODS.includes(cw)) return cw;
+    const match = VALID_CASK_WOODS.find(v => v.toLowerCase() === cw.toLowerCase());
+    if (match) return match;
+    if (cw.toLowerCase().includes("american") && cw.toLowerCase().includes("oak")) return "American White Oak";
+    if (cw.toLowerCase().includes("sherry")) return "Sherry Casks";
+    if (cw.toLowerCase().includes("bourbon")) return "Ex-Bourbon Barrels";
+    console.warn(`Unknown cask_wood value "${cw}", defaulting to "Other"`);
+    return "Other";
+  });
 
   // Normalize country to valid choice
   if (data.country) {
@@ -273,7 +307,7 @@ TASK:
   data.limited_time_offer = Boolean(data.limited_time_offer);
 
   // -------------------------
-  // HARD VALIDATION
+  // VALIDATION
   // -------------------------
   function isBad(value) {
     return (
@@ -296,7 +330,6 @@ TASK:
     "country",
     "region",
     "cask_wood",
-    "finish_type",
     "age_statement",
     "abv"
   ];
