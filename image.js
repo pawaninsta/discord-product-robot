@@ -1,61 +1,44 @@
-import fetch from "node-fetch";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import fetch from "node-fetch";
 
 /**
  * Generate a studio product shot with white background
- * Tries Gemini 3 first, then NanoBanana, then falls back to original
+ * Uses Google's Gemini with Imagen (Nano Banana Pro) for image generation
  */
 export async function generateStudioImage(imageUrl) {
   console.log("IMAGE: Generating studio product shot");
   console.log("IMAGE: Input URL:", imageUrl);
 
-  // Try Gemini 3 first (if API key is configured)
-  if (process.env.GOOGLE_AI_API_KEY) {
-    try {
-      const result = await generateWithGemini(imageUrl);
-      if (result) {
-        console.log("IMAGE: Gemini 3 success");
-        return result;
-      }
-    } catch (err) {
-      console.error("IMAGE: Gemini 3 failed:", err.message);
-    }
-  } else {
-    console.log("IMAGE: GOOGLE_AI_API_KEY not configured, skipping Gemini");
+  if (!process.env.GOOGLE_AI_API_KEY) {
+    console.warn("IMAGE: GOOGLE_AI_API_KEY not configured, using original image");
+    return imageUrl;
   }
 
-  // Try NanoBanana as fallback
-  if (process.env.NANOBANANA_API_KEY) {
-    try {
-      const result = await generateWithNanoBanana(imageUrl);
-      if (result) {
-        console.log("IMAGE: NanoBanana success");
-        return result;
-      }
-    } catch (err) {
-      console.error("IMAGE: NanoBanana failed:", err.message);
+  try {
+    const result = await generateWithGemini(imageUrl);
+    if (result) {
+      console.log("IMAGE: Gemini/Imagen success");
+      return result;
     }
-  } else {
-    console.log("IMAGE: NANOBANANA_API_KEY not configured, skipping NanoBanana");
+  } catch (err) {
+    console.error("IMAGE: Gemini/Imagen failed:", err.message);
   }
 
   // Fall back to original image
-  console.log("IMAGE: All services failed, using original image");
+  console.log("IMAGE: Generation failed, using original image");
   return imageUrl;
 }
 
 /**
- * Generate studio image using Gemini 3 with Imagen 3
+ * Generate studio image using Google Gemini with Imagen (Nano Banana Pro)
  */
 async function generateWithGemini(imageUrl) {
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
   
-  // Use Gemini 3 Flash for image generation
-  // Note: Model name may need to be updated based on latest Google AI availability
+  // Use Gemini model with image generation capability
   const model = genAI.getGenerativeModel({
     model: "gemini-2.0-flash-exp-image-generation",
     generationConfig: {
-      // Do NOT set response_mime_type for image generation - this caused the 400 error
       temperature: 0.4,
     },
   });
@@ -93,7 +76,7 @@ Do not alter the product in any way - just isolate it and place it on the white 
       if (candidate.content && candidate.content.parts) {
         for (const part of candidate.content.parts) {
           if (part.inlineData && part.inlineData.data) {
-            // Convert base64 to data URL
+            // Return base64 data URL
             const outputMimeType = part.inlineData.mimeType || "image/png";
             return `data:${outputMimeType};base64,${part.inlineData.data}`;
           }
@@ -101,50 +84,10 @@ Do not alter the product in any way - just isolate it and place it on the white 
       }
     }
 
-    console.log("IMAGE: Gemini response did not contain image data");
+    console.log("IMAGE: Response did not contain image data");
     return null;
   } catch (err) {
-    // Log the specific error for debugging
     console.error("IMAGE: Gemini API error:", err.message);
     throw err;
-  }
-}
-
-/**
- * Generate studio image using NanoBanana API
- */
-async function generateWithNanoBanana(imageUrl) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000); // 30 sec timeout
-
-  try {
-    const res = await fetch("https://api.nanobanana.ai/generate", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.NANOBANANA_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        image: imageUrl,
-        style: "studio_product_white_background"
-      }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      throw new Error(`NanoBanana API returned ${res.status}`);
-    }
-
-    const data = await res.json();
-
-    if (data?.output_image_url) {
-      return data.output_image_url;
-    }
-
-    return null;
-  } finally {
-    clearTimeout(timeout);
   }
 }
