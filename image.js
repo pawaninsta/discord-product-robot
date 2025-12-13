@@ -55,11 +55,17 @@ async function generateWithGeminiImage(imageUrl) {
   const base64Image = Buffer.from(imageBuffer).toString("base64");
   const mimeType = imageResponse.headers.get("content-type") || "image/png";
 
-  const prompt = `Take this product image and place it on a clean, professional white studio background. 
-Keep the product exactly as it appears - same angle, same lighting on the product itself.
-Only replace the background with a pure white (#FFFFFF) seamless studio backdrop.
-The product should appear to be professionally photographed in a commercial product photography studio.
-Do not alter the product in any way - just isolate it and place it on the white background.`;
+  const prompt = `Edit this existing product photo.
+
+GOAL: Standardized studio packshot.
+
+- Replace ONLY the background with pure white (#FFFFFF) seamless studio backdrop.
+- Keep the bottle exactly the same (shape, label, colors, reflections). Do not distort.
+- Keep the full bottle visible (do not crop any part of the bottle).
+- COMPOSITION: Scale and crop the image so the bottle occupies ~92–96% of the image height.
+  - Minimal even margin above the cap and below the base.
+  - Center the bottle horizontally.
+- No extra props, no shadows beyond the bottle’s natural shadow, no text overlays.`;
 
   try {
     const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${modelName}:generateContent`;

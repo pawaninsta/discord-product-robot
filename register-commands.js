@@ -38,6 +38,25 @@ const commands = [
         .setMaxValue(200)
         .setRequired(false)
     )
+    .addIntegerOption(option =>
+      option
+        .setName("quantity")
+        .setDescription("Optional starting inventory quantity (e.g., 6)")
+        .setMinValue(0)
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName("barcode")
+        .setDescription("Optional barcode/UPC (digits only)")
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName("reference_link")
+        .setDescription("Optional reference link (e.g., distillery page / distributor listing)")
+        .setRequired(false)
+    )
     .addStringOption(option =>
       option
         .setName("notes")

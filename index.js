@@ -20,9 +20,12 @@ client.on("interactionCreate", async interaction => {
     const price = interaction.options.getNumber("price");
     const abv = interaction.options.getNumber("abv");
     const proof = interaction.options.getNumber("proof");
+    const quantity = interaction.options.getInteger("quantity");
+    const barcode = interaction.options.getString("barcode");
+    const referenceLink = interaction.options.getString("reference_link");
     const notes = interaction.options.getString("notes") || "";
 
-    await runPipeline({ image, cost, price, abv, proof, notes });
+    await runPipeline({ image, cost, price, abv, proof, quantity, barcode, referenceLink, notes });
   }
 });
 

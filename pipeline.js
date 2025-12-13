@@ -9,7 +9,7 @@ import fetch from "node-fetch";
  * Main pipeline:
  * Discord → Image → AI → Shopify → Discord
  */
-export async function runPipeline({ image, cost, price, abv, proof, notes }) {
+export async function runPipeline({ image, cost, price, abv, proof, quantity, barcode, referenceLink, notes }) {
   console.log("PIPELINE START");
 
   try {
@@ -98,6 +98,19 @@ export async function runPipeline({ image, cost, price, abv, proof, notes }) {
       aiData.abv = "";
     }
 
+    // If a reference link is provided, add it to the description so the team can trace the source.
+    if (referenceLink) {
+      const clean = String(referenceLink).trim();
+      if (clean) {
+        const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(aiData.title || clean)}`;
+        aiData.description = `${aiData.description}\n\n<p><strong>Reference</strong>: <a href="${clean}">${clean}</a></p>\n<p><strong>Search</strong>: <a href="${searchUrl}">${searchUrl}</a></p>`;
+      }
+    } else {
+      // Always include a search link even if no reference was provided.
+      const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(aiData.title || "")}`;
+      aiData.description = `${aiData.description}\n\n<p><strong>Search</strong>: <a href="${searchUrl}">${searchUrl}</a></p>`;
+    }
+
     // -------------------------
     // STEP 3: SHOPIFY
     // -------------------------
@@ -116,6 +129,8 @@ export async function runPipeline({ image, cost, price, abv, proof, notes }) {
       price,
       cost,
       imageUrl: finalImageUrl,
+      barcode,
+      quantity,
       metafields: [
         // NOTE: These metafield definitions are single_line_text_field in Shopify
         mf("nose", Array.isArray(aiData.nose) ? aiData.nose.join(", ") : aiData.nose),

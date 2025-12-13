@@ -63,6 +63,8 @@ async function createProduct(product) {
               cost: product.cost,
               inventory_management: "shopify",
               inventory_policy: "deny",
+              inventory_quantity: typeof product.quantity === "number" ? product.quantity : undefined,
+              barcode: product.barcode ? String(product.barcode) : undefined,
               weight: 3.5,
               weight_unit: "lb",
               requires_shipping: true
