@@ -22,10 +22,26 @@ const commands = [
         .setDescription("Selling price")
         .setRequired(true)
     )
+    .addNumberOption(option =>
+      option
+        .setName("abv")
+        .setDescription("Optional ABV % (e.g., 53.5)")
+        .setMinValue(0)
+        .setMaxValue(100)
+        .setRequired(false)
+    )
+    .addNumberOption(option =>
+      option
+        .setName("proof")
+        .setDescription("Optional proof (e.g., 107). If provided, ABV will be computed as proof/2.")
+        .setMinValue(0)
+        .setMaxValue(200)
+        .setRequired(false)
+    )
     .addStringOption(option =>
       option
         .setName("notes")
-        .setDescription("Optional notes (store pick, proof, etc.)")
+        .setDescription("Optional notes (store pick, barrel #, etc.)")
         .setRequired(false)
     )
 ].map(command => command.toJSON());

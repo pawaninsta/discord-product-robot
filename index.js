@@ -18,9 +18,11 @@ client.on("interactionCreate", async interaction => {
     const image = interaction.options.getAttachment("image");
     const cost = interaction.options.getNumber("cost");
     const price = interaction.options.getNumber("price");
+    const abv = interaction.options.getNumber("abv");
+    const proof = interaction.options.getNumber("proof");
     const notes = interaction.options.getString("notes") || "";
 
-    await runPipeline({ image, cost, price, notes });
+    await runPipeline({ image, cost, price, abv, proof, notes });
   }
 });
 

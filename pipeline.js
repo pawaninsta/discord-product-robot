@@ -9,7 +9,7 @@ import fetch from "node-fetch";
  * Main pipeline:
  * Discord → Image → AI → Shopify → Discord
  */
-export async function runPipeline({ image, cost, price, notes }) {
+export async function runPipeline({ image, cost, price, abv, proof, notes }) {
   console.log("PIPELINE START");
 
   try {
@@ -29,10 +29,25 @@ export async function runPipeline({ image, cost, price, notes }) {
     await send("🧠 Writing product listing…");
     console.log("STEP 2: Calling generateProductData");
 
+    // Normalize user-provided ABV/proof (preferred over guessing)
+    let abvFromInput = "";
+    if (typeof abv === "number" && Number.isFinite(abv)) {
+      abvFromInput = `${abv}%`;
+    } else if (typeof proof === "number" && Number.isFinite(proof)) {
+      const computed = proof / 2;
+      abvFromInput = `${Number.isFinite(computed) ? String(computed).replace(/\.0$/, "") : ""}%`;
+    }
+
+    const notesWithUserAbv = [
+      notes || "",
+      typeof proof === "number" && Number.isFinite(proof) ? `Proof: ${proof}` : "",
+      abvFromInput ? `ABV: ${abvFromInput}` : ""
+    ].filter(Boolean).join("\n");
+
     // Extract a few high-signal facts first (ABV/proof, store pick, single barrel)
     let signals = null;
     try {
-      signals = await extractLabelSignals({ notes, imageUrl: finalImageUrl });
+      signals = await extractLabelSignals({ notes: notesWithUserAbv, imageUrl: finalImageUrl });
       console.log("SIGNALS:", JSON.stringify(signals));
     } catch (sigErr) {
       console.warn("SIGNALS: failed:", sigErr?.message || String(sigErr));
@@ -51,7 +66,7 @@ export async function runPipeline({ image, cost, price, notes }) {
     }
 
     const notesWithSignals = [
-      notes || "",
+      notesWithUserAbv || "",
       signals ? `\n\nLABEL SIGNALS (detected): ${JSON.stringify({ store_pick: signals.store_pick, single_barrel: signals.single_barrel, abv: signals.abv, proof: signals.proof, evidence: signals.evidence })}` : ""
     ].join("");
 
@@ -69,13 +84,18 @@ export async function runPipeline({ image, cost, price, notes }) {
       if (signals.needs_abv) aiData.needs_abv = true;
     }
 
+    // Prefer user input for ABV/proof when provided
+    if (abvFromInput) {
+      aiData.abv = abvFromInput;
+      aiData.needs_abv = false;
+    }
+
     console.log("STEP 2 COMPLETE: AI DATA:", aiData);
 
-    // If ABV couldn't be found, ask the user and stop before creating the Shopify product.
-    if (aiData.needs_abv || !String(aiData.abv || "").trim()) {
-      await send("❓ I couldn’t find ABV/proof on the label. Please re-run `/create-product` and include it in **notes** like `ABV: 53.5%` (or `Proof: 107`).");
-      console.log("PIPELINE STOP: Missing ABV; user clarification requested");
-      return;
+    // If ABV couldn't be found, continue the workflow but omit ABV and notify the user at the end.
+    const needsAbv = Boolean(aiData.needs_abv) || !String(aiData.abv || "").trim();
+    if (needsAbv) {
+      aiData.abv = "";
     }
 
     // -------------------------
@@ -109,7 +129,8 @@ export async function runPipeline({ image, cost, price, notes }) {
         // NOTE: Shopify definition expects list.single_line_text_field
         mfList("finish_type", aiData.finish_type),
         mf("age_statement", aiData.age_statement),
-        mf("alcohol_by_volume", aiData.abv),
+        // Only set ABV when confidently known; otherwise omit it and ask the user after draft creation.
+        ...(String(aiData.abv || "").trim() ? [mf("alcohol_by_volume", aiData.abv)] : []),
         mf("awards", aiData.awards),
 
         mb("finished", aiData.finished),
@@ -129,6 +150,9 @@ const adminUrl = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/products/${p
 
 
     await send(`✅ Draft created: ${adminUrl}`);
+    if (needsAbv) {
+      await send("⚠️ ABV/proof wasn’t found on the label with confidence, so I left **Alcohol by Volume** blank. Please fill it in manually or re-run with the **abv**/**proof** command options.");
+    }
     console.log("PIPELINE SUCCESS:", adminUrl);
 
   } catch (err) {
