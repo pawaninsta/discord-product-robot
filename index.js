@@ -24,4 +24,6 @@ client.on("interactionCreate", async interaction => {
   }
 });
 
+console.log("DISCORD_TOKEN exists:", Boolean(process.env.DISCORD_TOKEN));
 client.login(process.env.DISCORD_TOKEN);
+
