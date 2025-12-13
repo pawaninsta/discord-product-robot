@@ -5,106 +5,94 @@ const openai = new OpenAI({
 });
 
 /**
- * Generates structured whiskey product data.
- * Always returns valid data (never blocks pipeline).
+ * Generate structured product data for Shopify
  */
 export async function generateProductData({ notes }) {
-  console.log("🧠 AI: Starting whiskey product generation");
+  console.log("AI STEP: Generating product data");
+  console.log("AI INPUT NOTES:", notes);
 
   const systemPrompt = `
-You are a senior whiskey buyer and spirits copywriter.
+You are a whiskey expert and e-commerce copywriter.
 
-Your job is to generate HIGH-QUALITY e-commerce product data
-for a premium whiskey retailer.
+You are generating a Shopify product listing for a whiskey bottle.
 
-IMPORTANT RULES:
-- Return ONLY valid JSON
-- Do NOT include markdown
-- Do NOT include explanations
-- Do NOT include extra keys
-- Use realistic whiskey language
-- If something is unknown, make a reasonable educated guess
+RULES:
+- You MUST return valid JSON only
+- You MUST fill in every field
+- Never leave fields empty
+- If info is unknown, use safe defaults:
+  - age_statement: "NAS"
+  - finish_type: "None"
+  - awards: ""
+- Always generate tasting notes
+- Be accurate, not speculative
+- Do NOT invent rare finishes or ages
+- Use realistic ABV ranges if unknown
 
-JSON SCHEMA (must match exactly):
-
-{
-  "title": string,
-  "description": string,
-  "nose": string,
-  "palate": string,
-  "finish": string,
-  "abv": string,
-  "region": string,
-  "country": string,
-  "sub_type": string,
-  "cask_wood": string,
-  "finished": boolean,
-  "finish_type": string,
-  "store_pick": boolean,
-  "cask_strength": boolean,
-  "single_barrel": boolean,
-  "limited_time_offer": boolean,
-  "age_statement": string
-}
+Return JSON in this exact format.
 `;
 
   const userPrompt = `
-Product notes (may be incomplete):
+Optional notes from the user (may be empty or incomplete):
+${notes || "No additional notes provided"}
 
-${notes || "No additional notes provided."}
-
-Assume this is a premium whiskey suitable for a specialty retailer.
+Generate a complete whiskey product listing.
 `;
 
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0.4,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ],
+    response_format: { type: "json_object" }
+  });
+
+  let data;
+
   try {
-    const res = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.6,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ]
-    });
-
-    const raw = res.choices?.[0]?.message?.content;
-
-    console.log("🧠 AI RAW OUTPUT:");
-    console.log(raw);
-
-    if (!raw) throw new Error("Empty AI response");
-
-    // -------- SAFE JSON EXTRACTION --------
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON object found");
-
-    const parsed = JSON.parse(jsonMatch[0]);
-
-    console.log("🧠 AI PARSED OUTPUT:", parsed);
-
-    return parsed;
-
+    data = JSON.parse(response.choices[0].message.content);
   } catch (err) {
-    console.error("❌ AI FAILED — using fallback:", err.message);
-
-    return {
-      title: "Limited Release Whiskey",
-      description:
-        "This limited release whiskey offers a balanced and approachable profile with classic oak-forward character, making it ideal for sipping neat or enjoying in refined cocktails.",
-      nose: "Vanilla, caramel, toasted oak",
-      palate: "Sweet oak, baking spice, brown sugar",
-      finish: "Medium-long finish with warming spice and vanilla",
-      abv: "50%",
-      region: "Kentucky",
-      country: "USA",
-      sub_type: "Straight Whiskey",
-      cask_wood: "American Oak",
-      finished: false,
-      finish_type: "",
-      store_pick: false,
-      cask_strength: false,
-      single_barrel: false,
-      limited_time_offer: true,
-      age_statement: "NAS"
-    };
+    console.error("AI JSON PARSE ERROR:", err);
+    throw new Error("AI returned invalid JSON");
   }
+
+  // -------------------------
+  // HARD VALIDATION
+  // -------------------------
+  const requiredFields = [
+    "title",
+    "description",
+    "nose",
+    "palate",
+    "finish",
+    "sub_type",
+    "country",
+    "region",
+    "cask_wood",
+    "finish_type",
+    "age_statement",
+    "abv"
+  ];
+
+  for (const field of requiredFields) {
+    if (!data[field] || String(data[field]).trim() === "") {
+      throw new Error(`AI missing required field: ${field}`);
+    }
+  }
+
+  // -------------------------
+  // NORMALIZE BOOLEANS
+  // -------------------------
+  data.finished = Boolean(data.finished);
+  data.store_pick = Boolean(data.store_pick);
+  data.cask_strength = Boolean(data.cask_strength);
+  data.single_barrel = Boolean(data.single_barrel);
+  data.limited_time_offer = Boolean(data.limited_time_offer);
+
+  console.log("AI STEP COMPLETE: Product data generated");
+  console.log("AI OUTPUT:", JSON.stringify(data, null, 2));
+
+  return data;
 }
