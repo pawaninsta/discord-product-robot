@@ -141,7 +141,7 @@ TASK:
   data.store_pick = Boolean(data.store_pick);
   data.cask_strength = Boolean(data.cask_strength);
   data.single_barrel = Boolean(data.single_barrel);
-  data.limited_time_offer = Boolean(data.limited_time_offer;
+  data.limited_time_offer = Boolean(data.limited_time_offer);
 
   console.log("AI STEP COMPLETE: Product data generated");
   console.log("AI OUTPUT:", JSON.stringify(data, null, 2));
