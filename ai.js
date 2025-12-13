@@ -77,6 +77,95 @@ ${notes || ""}
 }
 
 /**
+ * Identify the bottle well enough to run web searches (brand/expression/age/finish).
+ * This is intentionally lightweight/deterministic and avoids creative writing.
+ */
+export async function identifyBottleForSearch({ notes, imageUrl }) {
+  if (!imageUrl) throw new Error("identifyBottleForSearch requires imageUrl");
+
+  const system = `
+You identify a spirits bottle from an image so we can search the web for accurate specs and tasting notes.
+Return ONLY valid JSON.
+
+Rules:
+- Read the label carefully. Prefer exact label text.
+- If unsure, leave fields blank rather than guessing.
+- Make "query" short and search-friendly: include brand + expression + age (if any) + finish (if any) + key designator (single barrel, store pick, batch).
+
+JSON shape:
+{
+  "vendor": "",
+  "product_name": "",
+  "age_statement": "",
+  "finish_hint": "",
+  "key_designators": [],
+  "query": "",
+  "confidence": 0,
+  "evidence": ["short label phrases"]
+}
+`;
+
+  const user = `
+Optional user notes (may include proof/ABV/barrel/batch info):
+${notes || ""}
+`;
+
+  const resp = await openai.chat.completions.create({
+    model: "gpt-4o",
+    temperature: 0,
+    messages: [
+      { role: "system", content: system },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: user },
+          { type: "image_url", image_url: { url: imageUrl, detail: "high" } }
+        ]
+      }
+    ],
+    response_format: { type: "json_object" }
+  });
+
+  const raw = resp?.choices?.[0]?.message?.content || "{}";
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = {};
+  }
+
+  const vendor = String(data.vendor || "").trim();
+  const product_name = String(data.product_name || "").trim();
+  const age_statement = String(data.age_statement || "").trim();
+  const finish_hint = String(data.finish_hint || "").trim();
+  const key_designators = Array.isArray(data.key_designators)
+    ? data.key_designators.map(String).map(s => s.trim()).filter(Boolean).slice(0, 6)
+    : [];
+  const evidence = Array.isArray(data.evidence) ? data.evidence.map(String).slice(0, 10) : [];
+
+  let query = String(data.query || "").trim();
+  if (!query) {
+    query = [vendor, product_name, age_statement, finish_hint, key_designators.join(" ")]
+      .map(s => String(s || "").trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  return {
+    vendor,
+    product_name,
+    age_statement,
+    finish_hint,
+    key_designators,
+    query,
+    confidence: Math.max(0, Math.min(1, Number(data.confidence || 0))),
+    evidence
+  };
+}
+
+/**
  * Generate structured product data for Shopify
  * Uses IMAGE + NOTES + optional web research (Vision enabled)
  */
@@ -186,7 +275,15 @@ Apply what you know about whiskey to enhance the description:
 - Blanton's = first commercially sold single barrel bourbon
 
 ## TASTING NOTES
-Use these specific vocabulary terms (pick 3-5 for each):
+Your tasting notes MUST be specific to this bottle.
+
+If WEB RESEARCH tasting-note evidence is provided, you MUST ground the notes in it:
+- Prefer notes that appear repeatedly across sources.
+- Map the wording from snippets into the allowed vocabulary terms (e.g., "orange zest" → "orange peel", "sweet oak" → "oak" + "brown sugar").
+- Avoid adding flavors that are not supported by snippets or label/production facts.
+- Do not reuse a generic/template set of notes across bottles.
+
+Use these specific vocabulary terms (pick 3-5 for NOSE and PALATE; 2-4 for FINISH):
 
 NOSE: vanilla, caramel, toffee, honey, brown sugar, chocolate, cocoa, coffee, dried fruit, raisin, date, fig, red fruit, cherry, stone fruit, orchard fruit, apple, pear, citrus, orange peel, tropical, malt, biscuit, nutty, almond, hazelnut, peanut brittle, baking spice, cinnamon, clove, nutmeg, pepper, herbal, floral, oak, cedar, tobacco, leather, smoke, peat, maritime, brine, earthy, mint, eucalyptus, corn, grain, butterscotch, maple
 
@@ -250,11 +347,20 @@ Return JSON in this EXACT structure:
 `;
 
   let webContext = "";
-  if (webResearch?.summary) {
+  if (webResearch?.summary || webResearch?.tastingNotesSummary) {
     webContext = `
 
-## WEB RESEARCH (use to enhance your description with brand history):
-${webResearch.summary}
+## WEB RESEARCH (ground facts; do NOT invent)
+### Brand/spec context
+${webResearch?.summary || "None"}
+
+### Tasting-notes evidence (snippets)
+${webResearch?.tastingNotesSummary || "None"}
+
+Rules for tasting notes:
+- Prefer the tasting-note evidence above. If it mentions flavors, map them into the allowed vocabulary terms.
+- If evidence conflicts across sources, choose the most repeated/consistent notes.
+- If there is no tasting-note evidence, infer cautiously from label facts (mashbill/finish/age/proof) and keep notes generic-but-accurate.
 `;
   }
 
@@ -272,7 +378,7 @@ TASK:
 4. IDENTIFY WHAT MAKES THIS RELEASE UNIQUE - warehouse location, mashbill, allocation status, etc.
 5. Write a SPECIFIC description that tells the unique story of THIS bottle (not generic marketing)
 6. Include brand heritage and history context
-7. Generate tasting notes that connect to the production method
+7. Generate tasting notes that connect to the production method AND the web tasting-note evidence (if provided). If the user notes include tasting descriptors, treat them as high-priority evidence.
 8. Set limited_time_offer to TRUE if this is an allocated or limited release
 9. Include bottle size (750ml default) in the title
 

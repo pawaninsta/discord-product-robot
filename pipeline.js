@@ -1,22 +1,34 @@
 import { generateProductData } from "./ai.js";
 import { generateStudioImage } from "./image.js";
 import { createDraftProduct } from "./shopify.js";
-import { searchWhiskeyInfo } from "./search.js";
-import { extractLabelSignals } from "./ai.js";
+import { searchWhiskeyInfo, searchTastingNotes } from "./search.js";
+import { extractLabelSignals, identifyBottleForSearch } from "./ai.js";
 import fetch from "node-fetch";
 
 /**
  * Main pipeline:
  * Discord → Image → AI → Shopify → Discord
  */
-export async function runPipeline({ image, cost, price, abv, proof, quantity, barcode, referenceLink, notes }) {
+export async function runPipeline({ image, cost, price, abv, proof, quantity, barcode, referenceLink, notes, send } = {}) {
   console.log("PIPELINE START");
+
+  const sendImpl = typeof send === "function" ? send : webhookSend;
+  const sendSafe = async (message) => {
+    try {
+      await sendImpl(message);
+    } catch (e) {
+      console.warn("DISCORD: send failed:", e?.message || String(e));
+    }
+  };
+
+  let adminUrl = "";
+  let needsAbv = false;
 
   try {
     // -------------------------
     // STEP 1: IMAGE
     // -------------------------
-    await send("📸 Generating studio image…");
+    await sendSafe("📸 Generating studio image…");
     console.log("STEP 1: Image input:", image.url);
 
     const finalImageUrl = await generateStudioImage(image.url);
@@ -26,7 +38,7 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
     // -------------------------
     // STEP 2: AI (VISION) + RESEARCH + SIGNALS
     // -------------------------
-    await send("🧠 Writing product listing…");
+    await sendSafe("🧠 Writing product listing…");
     console.log("STEP 2: Calling generateProductData");
 
     // Normalize user-provided ABV/proof (preferred over guessing)
@@ -53,14 +65,37 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
       console.warn("SIGNALS: failed:", sigErr?.message || String(sigErr));
     }
 
-    // Optional web research to reduce generic output
+    // Web research (tasting notes + specs) to reduce generic output
     let webResearch = null;
     try {
-      const query = signals?.store_pick
-        ? `${signals?.evidence?.[0] || ""} ${signals?.evidence?.[1] || ""}`.trim()
-        : "";
-      // Fall back to vendor/title once we have aiData if this returns empty.
-      if (query) webResearch = await searchWhiskeyInfo(query);
+      // Step A: identify bottle for a clean search query
+      const ident = await identifyBottleForSearch({ notes: notesWithUserAbv, imageUrl: finalImageUrl }).catch(() => null);
+      const fallbackQuery = [
+        ident?.query,
+        signals?.evidence?.slice(0, 2).join(" "),
+        notes
+      ]
+        .map(s => String(s || "").trim())
+        .filter(Boolean)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 180);
+
+      if (fallbackQuery) {
+        const [specs, tasting] = await Promise.all([
+          searchWhiskeyInfo(fallbackQuery).catch(() => null),
+          searchTastingNotes(fallbackQuery).catch(() => null)
+        ]);
+
+        webResearch = {
+          query: fallbackQuery,
+          summary: specs?.summary || "",
+          results: specs?.results || [],
+          tastingNotesSummary: tasting?.tastingNotesSummary || "",
+          tastingResults: tasting?.results || []
+        };
+      }
     } catch (webErr) {
       console.warn("SEARCH: failed:", webErr?.message || String(webErr));
     }
@@ -93,28 +128,25 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
     console.log("STEP 2 COMPLETE: AI DATA:", aiData);
 
     // If ABV couldn't be found, continue the workflow but omit ABV and notify the user at the end.
-    const needsAbv = Boolean(aiData.needs_abv) || !String(aiData.abv || "").trim();
+    needsAbv = Boolean(aiData.needs_abv) || !String(aiData.abv || "").trim();
     if (needsAbv) {
       aiData.abv = "";
     }
 
-    // If a reference link is provided, add it to the description so the team can trace the source.
+    // Do NOT append reference/search links to the customer-facing description.
+    // Instead, store them as internal Shopify tags (visible in admin, not on PDP).
+    const tags = [];
     if (referenceLink) {
       const clean = String(referenceLink).trim();
-      if (clean) {
-        const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(aiData.title || clean)}`;
-        aiData.description = `${aiData.description}\n\n<p><strong>Reference</strong>: <a href="${clean}">${clean}</a></p>\n<p><strong>Search</strong>: <a href="${searchUrl}">${searchUrl}</a></p>`;
-      }
-    } else {
-      // Always include a search link even if no reference was provided.
-      const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(aiData.title || "")}`;
-      aiData.description = `${aiData.description}\n\n<p><strong>Search</strong>: <a href="${searchUrl}">${searchUrl}</a></p>`;
+      if (clean) tags.push(`ref:${clean}`);
     }
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(aiData.title || "")}`;
+    if (aiData.title) tags.push(`search:${searchUrl}`);
 
     // -------------------------
     // STEP 3: SHOPIFY
     // -------------------------
-    await send("🛒 Creating Shopify draft…");
+    await sendSafe("🛒 Creating Shopify draft…");
     console.log("STEP 3: Creating Shopify product");
 
     // #region agent log
@@ -131,6 +163,7 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
       imageUrl: finalImageUrl,
       barcode,
       quantity,
+      tags,
       metafields: [
         // NOTE: These metafield definitions are single_line_text_field in Shopify
         mf("nose", Array.isArray(aiData.nose) ? aiData.nose.join(", ") : aiData.nose),
@@ -158,21 +191,22 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
     });
 
     if (!product || !product.id) {
-  throw new Error("Shopify product creation failed");
-}
+      throw new Error("Shopify product creation failed");
+    }
 
-const adminUrl = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/products/${product.id}`;
+    adminUrl = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/products/${product.id}`;
 
-
-    await send(`✅ Draft created: ${adminUrl}`);
+    await sendSafe(`✅ Draft created: ${adminUrl}`);
     if (needsAbv) {
-      await send("⚠️ ABV/proof wasn’t found on the label with confidence, so I left **Alcohol by Volume** blank. Please fill it in manually or re-run with the **abv**/**proof** command options.");
+      await sendSafe("⚠️ ABV/proof wasn’t found on the label with confidence, so I left **Alcohol by Volume** blank. Please fill it in manually or re-run with the **abv**/**proof** command options.");
     }
     console.log("PIPELINE SUCCESS:", adminUrl);
 
+    return { ok: true, adminUrl, needsAbv, productId: product.id };
   } catch (err) {
     console.error("PIPELINE ERROR:", err);
-    await send(`❌ Pipeline failed: ${err.message}`);
+    await sendSafe(`❌ Pipeline failed: ${err?.message || String(err)}`);
+    return { ok: false, error: err?.message || String(err) };
   }
 }
 
@@ -227,12 +261,14 @@ function mb(key, value) {
 /**
  * Discord webhook helper
  */
-async function send(message) {
+async function webhookSend(message) {
   console.log("DISCORD:", message);
+  const url = process.env.DISCORD_WEBHOOK_URL;
+  if (!url) return;
 
-  await fetch(process.env.DISCORD_WEBHOOK_URL, {
+  await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content: message })
+    body: JSON.stringify({ content: String(message ?? "") })
   });
 }

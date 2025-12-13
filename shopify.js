@@ -55,6 +55,7 @@ async function createProduct(product) {
           body_html: product.description,
           vendor: product.vendor || "The Whiskey Library",
           product_type: product.product_type || "",
+          tags: Array.isArray(product.tags) ? product.tags.join(", ") : (product.tags || ""),
           status: "draft",
           published_scope: "global", // Publish to all channels
           variants: [

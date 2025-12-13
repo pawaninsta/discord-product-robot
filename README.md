@@ -12,7 +12,7 @@ Discord Command → Studio Image → AI Analysis → Shopify Draft → Discord N
 2. **Image Processing** — Nano Banana AI generates a professional studio product photo
 3. **AI Analysis** — GPT-4o reads the bottle label and generates product data (title, description, tasting notes, metadata)
 4. **Shopify** — Creates a draft product with all metafields populated
-5. **Notification** — Sends the Shopify admin link back to Discord
+5. **Notification** — Creates a dedicated Discord thread for logs and posts a final completion ping (with the Shopify admin link)
 
 ## Project Structure
 
@@ -35,7 +35,7 @@ discord-product-robot/
 - OpenAI API key with GPT-4o access
 - Shopify store with Admin API access
 - Nano Banana API key (optional — falls back to original image)
-- Discord Webhook URL for status notifications
+- Discord Webhook URL for status notifications (optional fallback)
 
 ## Environment Variables
 
@@ -45,8 +45,10 @@ Create these environment variables in your deployment platform or `.env` file:
 |----------|-------------|
 | `DISCORD_TOKEN` | Discord bot token |
 | `DISCORD_APP_ID` | Discord application ID |
-| `DISCORD_WEBHOOK_URL` | Webhook URL for status updates |
+| `DISCORD_WEBHOOK_URL` | Optional fallback webhook for status updates (used only if the bot can’t create a log thread) |
 | `OPENAI_API_KEY` | OpenAI API key |
+| `GOOGLE_API_KEY` | (Optional) Google Custom Search API key (enables web-grounded specs + tasting notes) |
+| `GOOGLE_CX` | (Optional) Google Custom Search Engine ID (`cx=...`) |
 | `SHOPIFY_STORE_DOMAIN` | Your Shopify store domain (e.g., `your-store.myshopify.com`) |
 | `SHOPIFY_ADMIN_TOKEN` | Shopify Admin API access token |
 | `NANOBANANA_API_KEY` | Nano Banana API key for image processing |
