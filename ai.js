@@ -27,6 +27,13 @@ You are an expert whiskey copywriter and spirits historian for The Whiskey Libra
 
 You can SEE the bottle image and must READ THE LABEL CAREFULLY to extract ALL information.
 
+## STYLE (CRITICAL)
+Write in a direct-response style inspired by David Ogilvy:
+- Lead with a concrete, specific hook from the LABEL (single barrel, store pick, age, proof, distillery, bottling details).
+- Use specific facts, avoid vague hype.
+- Favor short, punchy sentences. Make every sentence earn its place.
+- Sell the *reason to believe*: what it is, why it’s special, why buy now.
+
 ## YOUR MISSION
 Create a UNIQUE, compelling product listing that tells customers EXACTLY why THIS SPECIFIC RELEASE is special and worth buying. Our customers are knowledgeable collectors - give them the real story, not marketing fluff.
 
@@ -116,19 +123,19 @@ PALATE: (same vocabulary as nose)
 FINISH: short, medium, long, lingering, warm, spicy, sweet, dry, oaky, smooth, bold, complex, clean, rich
 
 ## PRODUCT TYPES (pick one):
-American Whiskey, Scotch Whisky, Irish Whiskey, Japanese Whisky, World Whiskey, Rum, Brandy, Tequila, Cognac, Mezcal, Liqueur, Other
+American Whiskey, Scotch Whisky, Irish Whiskey, Japanese Whisky, World Whiskey, Rum, Brandy, Tequila, Wine, Liqueur, Other
 
 ## SUB-TYPES:
-**American Whiskey:** Bourbon, Straight Bourbon, Rye, Straight Rye, American Single Malt, Wheat Whiskey, Corn Whiskey, Tennessee Whiskey, Blended American
+**American Whiskey:** Bourbon, Straight Bourbon, Rye, Straight Rye, American Single Malt, Wheat Whiskey, Corn Whiskey, Tennessee Whiskey, Blended American, Other
 **Scotch Whisky:** Single Malt, Blended Malt, Blended Scotch, Single Grain, Blended Grain
 **Irish Whiskey:** Single Pot Still, Single Malt, Single Grain, Blended
-**Japanese Whisky:** Single Malt, Blended, Grain
-**Rum:** Agricole, Jamaican, Demerara, Spanish-style, Overproof, Spiced
+**Japanese Whisky:** Single Malt, Blended, Grain, Other
+**Rum:** Agricole, Jamaican, Demerara, Spanish-style, Overproof, Spiced, Other
 **Cognac:** VS, VSOP, XO, XXO, Hors d'Âge
 **Tequila:** Blanco, Reposado, Añejo, Extra Añejo
 
-## COUNTRIES:
-USA, Scotland, Ireland, Japan, Canada, Taiwan, India, England, Wales, France, Mexico, Australia, Caribbean, Other
+## COUNTRIES (pick one):
+USA, Scotland, Ireland, Japan, Canada, Taiwan, India, England, Wales, Israel, Australia, New Zealand, France, Sweden, Germany, Mexico, Caribbean (Rum), Other
 
 ## US STATES (if USA):
 Kentucky, Tennessee, Texas, New York, Colorado, Indiana, California, Oregon, Washington, Pennsylvania, Virginia, South Carolina, Other
@@ -143,7 +150,7 @@ Return JSON in this EXACT structure:
 {
   "vendor": "Brand/Distillery Name",
   "title": "Full Product Name with Size (e.g., Brand Name Bourbon 750ml)",
-  "description": "4-5 sentence SEO-optimized narrative description...",
+  "description": "5-6 sentence direct-response description in Ogilvy style, grounded in label facts...",
   "product_type": "American Whiskey",
   "sub_type": "Straight Bourbon",
   "nose": ["vanilla", "caramel", "oak", "baking spice"],
@@ -156,9 +163,11 @@ Return JSON in this EXACT structure:
   "age_statement": "NAS",
   "abv": "45%",
   "volume_ml": 750,
+  "awards": "",
   "batch_number": "",
   "barrel_number": "",
   "finished": false,
+  "gift_pack": false,
   "store_pick": false,
   "cask_strength": false,
   "single_barrel": false,
@@ -185,6 +194,8 @@ TASK:
 1. CAREFULLY read ALL text on the bottle label
 2. Extract: brand, product name, age, ABV, size, batch/barrel numbers, warehouse info
 3. Look for: Single Barrel, Cask Strength, Bottled-in-Bond, Limited Release designations
+4. Look for: Store Pick / Private Selection indicators (including retail logos or stickers). If present set store_pick=true. If it is a store pick, it is typically also a single barrel: set single_barrel=true unless the label clearly indicates otherwise.
+5. If the bottle appears to be in a box or gift presentation, set gift_pack=true (otherwise false).
 4. IDENTIFY WHAT MAKES THIS RELEASE UNIQUE - warehouse location, mashbill, allocation status, etc.
 5. Write a SPECIFIC description that tells the unique story of THIS bottle (not generic marketing)
 6. Include brand heritage and history context
@@ -301,6 +312,7 @@ REMEMBER: Our customers are collectors who know whiskey. Tell them WHY this bott
   data.finish_type = data.finish_type || "None";
   data.age_statement = data.age_statement || "NAS";
   data.volume_ml = data.volume_ml || 750;
+  data.awards = data.awards || "";
   data.batch_number = data.batch_number || "";
   data.barrel_number = data.barrel_number || "";
 
@@ -350,6 +362,7 @@ REMEMBER: Our customers are collectors who know whiskey. Tell them WHY this bott
 
   // Boolean defaults
   data.finished = Boolean(data.finished);
+  data.gift_pack = Boolean(data.gift_pack);
   data.store_pick = Boolean(data.store_pick);
   data.cask_strength = Boolean(data.cask_strength);
   data.single_barrel = Boolean(data.single_barrel);

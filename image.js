@@ -41,7 +41,10 @@ async function generateWithGemini(imageUrl) {
   
   // Use Gemini model with image generation capability
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash-exp-image-generation",
+    // NOTE: The previous model id was returning 404 in Railway logs.
+    // This SDK version (@google/generative-ai@0.21.0) documents Gemini 1.5 models.
+    // You can override with GOOGLE_IMAGE_MODEL if your account supports a newer image-capable model.
+    model: process.env.GOOGLE_IMAGE_MODEL || "gemini-1.5-flash",
     generationConfig: {
       temperature: 0.4,
     },

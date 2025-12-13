@@ -47,22 +47,29 @@ export async function runPipeline({ image, cost, price, notes }) {
     const product = await createDraftProduct({
       title: aiData.title,
       description: aiData.description,
+      vendor: aiData.vendor,
+      product_type: aiData.product_type,
       price,
       cost,
       imageUrl: finalImageUrl,
       metafields: [
-        mfList("nose", aiData.nose),
-        mfList("palate", aiData.palate),
-        mfList("finish", aiData.finish),
+        // NOTE: These metafield definitions are single_line_text_field in Shopify
+        mf("nose", Array.isArray(aiData.nose) ? aiData.nose.join(", ") : aiData.nose),
+        mf("palate", Array.isArray(aiData.palate) ? aiData.palate.join(", ") : aiData.palate),
+        mf("finish", Array.isArray(aiData.finish) ? aiData.finish.join(", ") : aiData.finish),
         mf("sub_type", aiData.sub_type),
-        mf("location_", aiData.country),
+        // NOTE: Shopify definition expects list.single_line_text_field
+        mfList("location_", aiData.country),
         mf("state", aiData.region),
         mfList("cask_wood", aiData.cask_wood),
-        mf("finish_type", aiData.finish_type),
+        // NOTE: Shopify definition expects list.single_line_text_field
+        mfList("finish_type", aiData.finish_type),
         mf("age_statement", aiData.age_statement),
         mf("alcohol_by_volume", aiData.abv),
+        mf("awards", aiData.awards),
 
         mb("finished", aiData.finished),
+        mb("gift_pack", aiData.gift_pack),
         mb("store_pick", aiData.store_pick),
         mb("cask_strength", aiData.cask_strength),
         mb("single_barrel", aiData.single_barrel),
