@@ -43,7 +43,26 @@ IMPORTANT: For cask_wood, you MUST use ONLY these exact values (can be an array 
 IMPORTANT: For country, you MUST use ONLY these exact values:
 ["USA", "Ireland", "Scotland", "Canada", "Japan", "India", "Taiwan", "England", "France", "Mexico", "Italy", "Portugal", "Other"]
 
-Return JSON in this exact structure.
+Return JSON in this EXACT structure:
+{
+  "title": "Brand Name Product Name",
+  "description": "A compelling 2-3 sentence product description for Shopify",
+  "nose": ["aroma note 1", "aroma note 2", "aroma note 3"],
+  "palate": ["taste note 1", "taste note 2", "taste note 3"],
+  "finish": ["finish note 1", "finish note 2"],
+  "sub_type": "Straight Bourbon Whiskey",
+  "country": "USA",
+  "region": "Kentucky",
+  "cask_wood": ["American White Oak"],
+  "finish_type": "None",
+  "age_statement": "4 Years" or "NAS",
+  "abv": "45%",
+  "finished": false,
+  "store_pick": false,
+  "cask_strength": false,
+  "single_barrel": false,
+  "limited_time_offer": false
+}
 `;
 
   const userPrompt = `
@@ -115,6 +134,11 @@ if (!data.title) {
   } else if (data.product_name) {
     data.title = data.product_name;
   }
+}
+
+// Build description if missing
+if (!data.description && data.title) {
+  data.description = `Discover ${data.title}. A premium whiskey crafted with care.`;
 }
 
 // Flatten tasting notes if nested
