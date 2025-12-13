@@ -43,7 +43,29 @@ IMPORTANT: For cask_wood, you MUST use ONLY these exact values (can be an array 
 IMPORTANT: For country, you MUST use ONLY these exact values:
 ["USA", "Ireland", "Scotland", "Canada", "Japan", "India", "Taiwan", "England", "France", "Mexico", "Italy", "Portugal", "Other"]
 
-Return JSON in this exact structure.
+Return JSON only in this exact structure (every field required; no null/empty strings; no "N/A"/"Unknown"):
+{
+  "title": "Brand Product Name",
+  "description": "<p>HTML product description suitable for Shopify body_html</p>",
+  "brand": "Brand",
+  "product_name": "Product Name",
+  "sub_type": "Straight Bourbon Whiskey",
+  "country": "USA",
+  "region": "Kentucky",
+  "cask_wood": ["American White Oak"],
+  "finish_type": "None",
+  "age_statement": "NAS",
+  "abv": "46",
+  "nose": ["vanilla", "caramel", "oak"],
+  "palate": ["toffee", "baking spice", "sweet corn"],
+  "finish": ["warm spice", "oak", "lingering sweetness"],
+  "awards": "",
+  "finished": false,
+  "store_pick": false,
+  "cask_strength": false,
+  "single_barrel": false,
+  "limited_time_offer": false
+}
 `;
 
   const userPrompt = `
@@ -117,6 +139,16 @@ if (!data.title) {
   }
 }
 
+// Map common description aliases to `description` (Shopify body_html)
+if (!data.description) {
+  data.description =
+    data.body_html ||
+    data.description_html ||
+    data.product_description ||
+    data.body ||
+    "";
+}
+
 // Flatten tasting notes if nested
 if (data.tasting_notes) {
   data.nose = data.nose || data.tasting_notes.nose;
@@ -131,6 +163,85 @@ data.region = data.region || "Kentucky";
 data.cask_wood = data.cask_wood || "American White Oak";
 data.finish_type = data.finish_type || "None";
 data.age_statement = data.age_statement || "NAS";
+
+// Map ABV aliases and normalize to a simple numeric string (e.g. "46")
+if (!data.abv) {
+  data.abv = data.alcohol_by_volume ?? data.alcohol ?? data.abv_percent ?? data.proof ?? "";
+}
+if (data.abv !== undefined && data.abv !== null) {
+  const rawAbv = String(data.abv).trim();
+  // Convert proof -> ABV if it looks like proof
+  if (/^\d+(\.\d+)?\s*proof$/i.test(rawAbv)) {
+    const proofNum = Number(rawAbv.replace(/proof/i, "").trim());
+    if (Number.isFinite(proofNum) && proofNum > 0) data.abv = String(proofNum / 2);
+  } else {
+    const m = rawAbv.match(/(\d+(\.\d+)?)/);
+    if (m) data.abv = m[1];
+  }
+}
+
+// If the model still omitted description, synthesize a safe Shopify HTML description.
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function toList(value) {
+  if (Array.isArray(value)) return value.map(v => String(v ?? "")).map(v => v.trim()).filter(Boolean);
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (!s) return [];
+    // Try split on commas/semicolons/newlines
+    const parts = s.split(/[,;\n]/g).map(v => v.trim()).filter(Boolean);
+    return parts.length ? parts : [s];
+  }
+  return [];
+}
+
+function renderList(items) {
+  if (!items?.length) return "";
+  return `<ul>${items.map(i => `<li>${escapeHtml(i)}</li>`).join("")}</ul>`;
+}
+
+function buildDescription(d) {
+  const title = escapeHtml(d.title || `${d.brand || ""} ${d.product_name || ""}`.trim() || "Whiskey");
+  const subType = escapeHtml(d.sub_type || "Whiskey");
+  const country = escapeHtml(d.country || "Other");
+  const region = escapeHtml(d.region || "");
+  const age = escapeHtml(d.age_statement || "NAS");
+  const abv = escapeHtml(d.abv || "");
+
+  const cask = toList(d.cask_wood);
+  const caskText = cask.length ? escapeHtml(cask.join(", ")) : "";
+  const finishType = escapeHtml(d.finish_type || "None");
+
+  const nose = toList(d.nose);
+  const palate = toList(d.palate);
+  const finish = toList(d.finish);
+
+  const origin = region ? `${country} (${region})` : country;
+  const details = [
+    subType && `Style: ${subType}`,
+    origin && `Origin: ${origin}`,
+    age && `Age: ${age}`,
+    abv && `ABV: ${abv}%`,
+    caskText && `Cask: ${caskText}`,
+    finishType && `Finish: ${finishType}`
+  ].filter(Boolean);
+
+  const detailsHtml = details.length ? `<ul>${details.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : "";
+  const noseHtml = nose.length ? `<p><strong>Nose</strong></p>${renderList(nose)}` : "";
+  const palateHtml = palate.length ? `<p><strong>Palate</strong></p>${renderList(palate)}` : "";
+  const finishHtml = finish.length ? `<p><strong>Finish</strong></p>${renderList(finish)}` : "";
+
+  const intro = `<p><strong>${title}</strong> is a ${escapeHtml(d.sub_type || "whiskey")} crafted for an approachable, well-balanced pour.</p>`;
+  const out = `${intro}${detailsHtml}${noseHtml}${palateHtml}${finishHtml}`.trim();
+  return out || `<p><strong>${title}</strong></p>`;
+}
 
 // Valid choices for Shopify metafields (must match exactly)
 const VALID_CASK_WOODS = [
@@ -196,6 +307,17 @@ data.limited_time_offer = Boolean(data.limited_time_offer);
       value === "N/A" ||
       value === "Unknown"
     );
+  }
+
+  // Ensure required `description` exists (prefer model output, otherwise synthesize)
+  if (isBad(data.description)) {
+    data.description = buildDescription(data);
+  }
+
+  // Last-resort ABV default if the model omitted it completely
+  if (isBad(data.abv)) {
+    console.warn('Missing/invalid "abv" from AI, defaulting to 45');
+    data.abv = "45";
   }
 
   const requiredFields = [
