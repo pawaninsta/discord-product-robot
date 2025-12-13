@@ -1,7 +1,23 @@
 import fetch from "node-fetch";
 
-const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
-const GOOGLE_CX = process.env.GOOGLE_CX; // Custom Search Engine ID
+const GOOGLE_API_KEY = (process.env.GOOGLE_API_KEY || "").trim();
+const RAW_GOOGLE_CX = (process.env.GOOGLE_CX || "").trim(); // Custom Search Engine ID
+
+function normalizeCx(raw) {
+  if (!raw) return "";
+  // If user pasted a full URL or querystring containing cx=..., extract it.
+  try {
+    if (raw.includes("cx=")) {
+      const qs = raw.includes("?") ? raw.split("?")[1] : raw;
+      const params = new URLSearchParams(qs);
+      const cx = params.get("cx");
+      if (cx) return cx.trim();
+    }
+  } catch {}
+  return raw;
+}
+
+const GOOGLE_CX = normalizeCx(RAW_GOOGLE_CX);
 
 /**
  * Search Google for whiskey product information
@@ -16,13 +32,19 @@ export async function searchWhiskeyInfo(query) {
   }
 
   try {
-    const searchQuery = encodeURIComponent(`${query} whiskey bourbon specs ABV age`);
+    const safeQuery = String(query || "").replace(/\s+/g, " ").trim().slice(0, 120);
+    const searchQuery = encodeURIComponent(`${safeQuery} whiskey bourbon specs ABV age`);
     const url = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_CX}&q=${searchQuery}&num=5`;
 
     const res = await fetch(url);
     
     if (!res.ok) {
-      console.error("SEARCH: Google API error:", res.status);
+      const bodyText = await res.text().catch(() => "");
+      // 400 almost always means invalid cx/key/restrictions; don't break the pipeline.
+      console.warn("SEARCH: Google API error:", res.status, bodyText ? `| ${bodyText.slice(0, 300)}` : "");
+      if (res.status === 400) {
+        console.warn("SEARCH: Hint: verify GOOGLE_CX is the CSE ID (not a full URL), Custom Search API is enabled, and the API key allows requests from Railway.");
+      }
       return null;
     }
 

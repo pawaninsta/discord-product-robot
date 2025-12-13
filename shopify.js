@@ -68,9 +68,17 @@ async function createProduct(product) {
               requires_shipping: true
             }
           ],
-          images: product.imageUrl
-            ? [{ src: product.imageUrl }]
-            : []
+          images: (() => {
+            if (!product.imageUrl) return [];
+            // If we received a data URL (e.g., from OpenAI image edits), upload via base64 attachment.
+            if (typeof product.imageUrl === "string" && product.imageUrl.startsWith("data:")) {
+              const match = product.imageUrl.match(/^data:(.+?);base64,(.+)$/);
+              const attachment = match?.[2];
+              if (!attachment) return [];
+              return [{ attachment, filename: "studio.png" }];
+            }
+            return [{ src: product.imageUrl }];
+          })()
         }
       })
     }
