@@ -33,7 +33,11 @@ export async function runPipeline({ image, cost, price, notes }) {
     await send("🧠 Writing product listing…");
     console.log("STEP 2: Calling generateProductData");
 
-    const aiData = await generateProductData({ notes });
+    const aiData = await generateProductData({
+  notes,
+  imageUrl: finalImageUrl
+});
+
 
     console.log("STEP 2 COMPLETE: AI data received:", aiData);
 
