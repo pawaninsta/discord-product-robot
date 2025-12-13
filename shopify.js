@@ -38,7 +38,7 @@ export async function createDraftProduct(product) {
  */
 async function createProduct(product) {
   const res = await fetch(
-    `https://${SHOP}/admin/api/2024-01/products.json`,
+    `https://${SHOP}/admin/api/2024-10/products.json`,
     {
       method: "POST",
       headers: {
@@ -141,7 +141,7 @@ async function updateMetafields(productId, metafields) {
 
   try {
     const res = await fetch(
-      `https://${SHOP}/admin/api/2024-01/graphql.json`,
+      `https://${SHOP}/admin/api/2024-10/graphql.json`,
       {
         method: "POST",
         headers: {
@@ -210,7 +210,7 @@ async function updateMetafieldsIndividually(productId, metafields) {
 
     try {
       const res = await fetch(
-        `https://${SHOP}/admin/api/2024-01/graphql.json`,
+        `https://${SHOP}/admin/api/2024-10/graphql.json`,
         {
           method: "POST",
           headers: {
@@ -240,6 +240,7 @@ async function updateMetafieldsIndividually(productId, metafields) {
 
 /**
  * Publish product to all sales channels
+ * Requires read_publications and write_publications scopes on API token
  */
 async function publishToAllChannels(productId) {
   console.log("SHOPIFY: Publishing to all sales channels");
@@ -262,7 +263,7 @@ async function publishToAllChannels(productId) {
 
   try {
     const pubRes = await fetch(
-      `https://${SHOP}/admin/api/2024-01/graphql.json`,
+      `https://${SHOP}/admin/api/2024-10/graphql.json`,
       {
         method: "POST",
         headers: {
@@ -274,15 +275,38 @@ async function publishToAllChannels(productId) {
     );
 
     const pubData = await pubRes.json();
+    
+    // Check for GraphQL errors (usually indicates missing scopes)
+    if (pubData.errors) {
+      console.error("SHOPIFY: Publications query error:", JSON.stringify(pubData.errors));
+      console.error("SHOPIFY: ⚠️  Make sure your API token has 'read_publications' scope!");
+      return;
+    }
+
     const publications = pubData.data?.publications?.edges || [];
     
-    console.log("SHOPIFY: Found publications:", publications.map(p => p.node.name).join(", "));
+    // Check if publications query returned empty
+    if (publications.length === 0) {
+      console.warn("SHOPIFY: ⚠️  No publications found!");
+      console.warn("SHOPIFY: This usually means the API token is missing 'read_publications' scope.");
+      console.warn("SHOPIFY: Add 'read_publications' and 'write_publications' scopes to your Shopify Admin API token.");
+      return;
+    }
+
+    const channelNames = publications.map(p => p.node.name).join(", ");
+    console.log("SHOPIFY: Found publications:", channelNames);
 
     // Publish to each channel
+    let successCount = 0;
     for (const pub of publications) {
       const publishMutation = `
         mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
           publishablePublish(id: $id, input: $input) {
+            publishable {
+              ... on Product {
+                id
+              }
+            }
             userErrors {
               field
               message
@@ -291,26 +315,42 @@ async function publishToAllChannels(productId) {
         }
       `;
 
-      await fetch(
-        `https://${SHOP}/admin/api/2024-01/graphql.json`,
-        {
-          method: "POST",
-          headers: {
-            "X-Shopify-Access-Token": TOKEN,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            query: publishMutation,
-            variables: {
-              id: gid,
-              input: [{ publicationId: pub.node.id }]
-            }
-          })
+      try {
+        const publishRes = await fetch(
+          `https://${SHOP}/admin/api/2024-10/graphql.json`,
+          {
+            method: "POST",
+            headers: {
+              "X-Shopify-Access-Token": TOKEN,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              query: publishMutation,
+              variables: {
+                id: gid,
+                input: [{ publicationId: pub.node.id }]
+              }
+            })
+          }
+        );
+
+        const publishData = await publishRes.json();
+        
+        if (publishData.errors) {
+          console.error(`SHOPIFY: Failed to publish to ${pub.node.name}:`, publishData.errors[0]?.message);
+        } else if (publishData.data?.publishablePublish?.userErrors?.length > 0) {
+          console.error(`SHOPIFY: Failed to publish to ${pub.node.name}:`, 
+            publishData.data.publishablePublish.userErrors[0].message);
+        } else {
+          console.log(`SHOPIFY: ✓ Published to ${pub.node.name}`);
+          successCount++;
         }
-      );
+      } catch (pubErr) {
+        console.error(`SHOPIFY: Error publishing to ${pub.node.name}:`, pubErr.message);
+      }
     }
 
-    console.log("SHOPIFY: Published to all channels");
+    console.log(`SHOPIFY: Published to ${successCount}/${publications.length} channels`);
 
   } catch (err) {
     console.error("SHOPIFY: Failed to publish to channels:", err.message);

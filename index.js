@@ -1,11 +1,11 @@
-import { Client, GatewayIntentBits, MessageFlags } from "discord.js";
+import { Client, GatewayIntentBits } from "discord.js";
 import { runPipeline } from "./pipeline.js";
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
-client.once("clientReady", () => {
+client.once("ready", () => {
   console.log("🤖 Robot is online");
 });
 
@@ -13,7 +13,7 @@ client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "create-product") {
-    await interaction.reply({ content: "🧪 Working on it…", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: "🧪 Working on it…", ephemeral: true });
 
     const image = interaction.options.getAttachment("image");
     const cost = interaction.options.getNumber("cost");

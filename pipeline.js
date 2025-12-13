@@ -1,12 +1,11 @@
 import { generateProductData } from "./ai.js";
 import { generateStudioImage } from "./image.js";
 import { createDraftProduct } from "./shopify.js";
-import { searchWhiskeyInfo } from "./search.js";
 import fetch from "node-fetch";
 
 /**
  * Main pipeline:
- * Discord → Image → Google Search → AI → Shopify → Discord
+ * Discord → Image → AI → Shopify → Discord
  */
 export async function runPipeline({ image, cost, price, notes }) {
   console.log("PIPELINE START");
@@ -23,91 +22,58 @@ export async function runPipeline({ image, cost, price, notes }) {
     console.log("STEP 1 COMPLETE: Image URL:", finalImageUrl);
 
     // -------------------------
-    // STEP 2: WEB RESEARCH (optional)
+    // STEP 2: AI (VISION)
     // -------------------------
-    let webResearch = null;
-    if (notes && notes.trim()) {
-      await send("🔍 Researching product info…");
-      console.log("STEP 2: Searching web for:", notes);
-      webResearch = await searchWhiskeyInfo(notes);
-      console.log("STEP 2 COMPLETE: Web research:", webResearch ? "Found" : "None");
-    }
-
-    // -------------------------
-    // STEP 3: AI (VISION + RESEARCH)
-    // -------------------------
-    await send("🧠 Reading label & writing listing…");
-    console.log("STEP 3: Calling generateProductData");
+    await send("🧠 Writing product listing…");
+    console.log("STEP 2: Calling generateProductData");
 
     const aiData = await generateProductData({
       notes,
-      imageUrl: finalImageUrl,
-      webResearch
+      imageUrl: finalImageUrl
     });
 
-    console.log("STEP 3 COMPLETE: AI DATA:", aiData);
+    console.log("STEP 2 COMPLETE: AI DATA:", aiData);
 
     // -------------------------
-    // STEP 4: SHOPIFY
+    // STEP 3: SHOPIFY
     // -------------------------
     await send("🛒 Creating Shopify draft…");
-    console.log("STEP 4: Creating Shopify product");
+    console.log("STEP 3: Creating Shopify product");
 
     const product = await createDraftProduct({
       title: aiData.title,
       description: aiData.description,
-      vendor: aiData.vendor,
-      product_type: aiData.product_type,
       price,
       cost,
       imageUrl: finalImageUrl,
       metafields: [
-        // Tasting notes (single text - comma-separated)
-        mf("nose", Array.isArray(aiData.nose) ? aiData.nose.join(", ") : aiData.nose),
-        mf("palate", Array.isArray(aiData.palate) ? aiData.palate.join(", ") : aiData.palate),
-        mf("finish", Array.isArray(aiData.finish) ? aiData.finish.join(", ") : aiData.finish),
-        
-        // List fields
-        mfList("cask_wood", aiData.cask_wood),
-        mfList("finish_type", aiData.finish_type),
-        
-        // Product details (single text fields)
+        mfList("nose", aiData.nose),
+        mfList("palate", aiData.palate),
+        mfList("finish", aiData.finish),
         mf("sub_type", aiData.sub_type),
-        mf("country_of_origin", aiData.country),
-        mf("region", aiData.region),
+        mf("location_", aiData.country),
+        mf("state", aiData.region),
+        mfList("cask_wood", aiData.cask_wood),
+        mf("finish_type", aiData.finish_type),
         mf("age_statement", aiData.age_statement),
         mf("alcohol_by_volume", aiData.abv),
 
-        // Boolean fields
         mb("finished", aiData.finished),
         mb("store_pick", aiData.store_pick),
         mb("cask_strength", aiData.cask_strength),
         mb("single_barrel", aiData.single_barrel),
-        mb("limited_time_offer", aiData.limited_time_offer)
+        mb("limited_boolean", aiData.limited_time_offer)
       ]
     });
 
     if (!product || !product.id) {
-      throw new Error("Shopify product creation failed");
-    }
+  throw new Error("Shopify product creation failed");
+}
 
-    const adminUrl = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/products/${product.id}`;
+const adminUrl = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/products/${product.id}`;
 
-    // Build summary message
-    const summary = [
-      `✅ **Draft created!**`,
-      ``,
-      `📦 **${aiData.title}**`,
-      `🏷️ Vendor: ${aiData.vendor}`,
-      `🥃 Type: ${aiData.product_type} - ${aiData.sub_type}`,
-      `🌍 Origin: ${aiData.country}, ${aiData.region}`,
-      `📊 ABV: ${aiData.abv}`,
-      `⏳ Age: ${aiData.age_statement}`,
-      ``,
-      `🔗 ${adminUrl}`
-    ].join("\n");
 
-    await send(summary);
+    await send(`✅ Draft created: ${adminUrl}`);
     console.log("PIPELINE SUCCESS:", adminUrl);
 
   } catch (err) {
@@ -153,6 +119,7 @@ function mfList(key, value) {
 
 /**
  * BOOLEAN metafield helper
+ * Value must be a string "true" or "false" for Shopify GraphQL
  */
 function mb(key, value) {
   return {
