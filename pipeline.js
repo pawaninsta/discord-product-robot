@@ -47,13 +47,13 @@ export async function runPipeline({ image, cost, price, notes }) {
       cost,
       imageUrl: finalImageUrl,
       metafields: [
-        mf("nose", aiData.nose),
-        mf("palate", aiData.palate),
-        mf("finish", aiData.finish),
+        mfList("nose", aiData.nose),
+        mfList("palate", aiData.palate),
+        mfList("finish", aiData.finish),
         mf("sub_type", aiData.sub_type),
         mf("country_of_origin", aiData.country),
         mf("region", aiData.region),
-        mf("cask_wood", aiData.cask_wood),
+        mfList("cask_wood", aiData.cask_wood),
         mf("finish_type", aiData.finish_type),
         mf("age_statement", aiData.age_statement),
         mf("alcohol_by_volume", aiData.abv),
@@ -83,7 +83,7 @@ const adminUrl = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/products/${p
 }
 
 /**
- * TEXT metafield helper
+ * TEXT metafield helper (single value)
  */
 function mf(key, value) {
   return {
@@ -95,13 +95,36 @@ function mf(key, value) {
 }
 
 /**
+ * LIST metafield helper (for list.single_line_text_field types)
+ * Accepts a string or array, returns JSON array string
+ */
+function mfList(key, value) {
+  let arrayValue;
+  if (Array.isArray(value)) {
+    arrayValue = value.map(v => String(v ?? ""));
+  } else if (typeof value === "string" && value.trim()) {
+    // If it's a comma-separated string, split it
+    arrayValue = value.split(",").map(v => v.trim()).filter(Boolean);
+  } else {
+    arrayValue = [];
+  }
+  
+  return {
+    namespace: "custom",
+    key,
+    value: JSON.stringify(arrayValue),
+    type: "list.single_line_text_field"
+  };
+}
+
+/**
  * BOOLEAN metafield helper
  */
 function mb(key, value) {
   return {
     namespace: "custom",
     key,
-    value: Boolean(value),
+    value: String(Boolean(value)),
     type: "boolean"
   };
 }
