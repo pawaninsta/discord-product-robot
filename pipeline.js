@@ -173,15 +173,8 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
       aiData.abv = "";
     }
 
-    // Do NOT append reference/search links to the customer-facing description.
-    // Instead, store them as internal Shopify tags (visible in admin, not on PDP).
-    const tags = [];
-    if (referenceLink) {
-      const clean = String(referenceLink).trim();
-      if (clean) tags.push(`ref:${clean}`);
-    }
-    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(aiData.title || "")}`;
-    if (aiData.title) tags.push(`search:${searchUrl}`);
+    // Do NOT append reference/search links to the customer-facing description,
+    // and do NOT store them as Shopify product tags (Shopify tags are strict).
 
     // -------------------------
     // STEP 3: SHOPIFY
@@ -203,7 +196,6 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
       imageUrl: finalImageUrl,
       barcode,
       quantity,
-      tags,
       metafields: [
         // NOTE: These metafield definitions are single_line_text_field in Shopify
         mf("nose", Array.isArray(aiData.nose) ? aiData.nose.join(", ") : aiData.nose),
