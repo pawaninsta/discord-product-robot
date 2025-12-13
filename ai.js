@@ -169,14 +169,16 @@ ${notes || ""}
  * Generate structured product data for Shopify
  * Uses IMAGE + NOTES + optional web research (Vision enabled)
  */
-export async function generateProductData({ notes, imageUrl, webResearch }) {
+export async function generateProductData({ notes, imageUrl, webResearch, tastingPriors, tastingMode = "inferred" }) {
   console.log("AI STEP: Generating product data (with vision)");
   console.log("AI INPUT NOTES:", notes);
   console.log("AI IMAGE URL:", imageUrl);
   console.log("AI WEB RESEARCH:", webResearch ? "Available" : "None");
+  // tastingMode/tastingPriors are optional and may be undefined
+  // (kept out of the loud logs to avoid huge payload spam)
 
   // #region agent log
-  (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4',location:'ai.js:16',message:'generateProductData entry',data:{hasImageUrl:Boolean(imageUrl),imageUrlHost:(()=>{try{return new URL(imageUrl).host;}catch{return null;}})(),notesLen:(notes||"").length,hasWebResearch:Boolean(webResearch?.summary)},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
+  (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4',location:'ai.js:16',message:'generateProductData entry',data:{hasImageUrl:Boolean(imageUrl),imageUrlHost:(()=>{try{return new URL(imageUrl).host;}catch{return null;}})(),notesLen:(notes||"").length,hasWebResearch:Boolean(webResearch?.summary||webResearch?.tastingNotesSummary||webResearch?.status),webResearchStatus:webResearch?.status||null},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
   // #endregion
 
   if (!imageUrl) {
@@ -283,6 +285,10 @@ If WEB RESEARCH tasting-note evidence is provided, you MUST ground the notes in 
 - Avoid adding flavors that are not supported by snippets or label/production facts.
 - Do not reuse a generic/template set of notes across bottles.
 
+Anti-anchoring rule:
+- The JSON schema below shows empty arrays for nose/palate/finish on purpose. Do NOT leave them empty.
+- Populate them with real notes for THIS bottle. Avoid repeating the same default set across different bottles.
+
 Use these specific vocabulary terms (pick 3-5 for NOSE and PALATE; 2-4 for FINISH):
 
 NOSE: vanilla, caramel, toffee, honey, brown sugar, chocolate, cocoa, coffee, dried fruit, raisin, date, fig, red fruit, cherry, stone fruit, orchard fruit, apple, pear, citrus, orange peel, tropical, malt, biscuit, nutty, almond, hazelnut, peanut brittle, baking spice, cinnamon, clove, nutmeg, pepper, herbal, floral, oak, cedar, tobacco, leather, smoke, peat, maritime, brine, earthy, mint, eucalyptus, corn, grain, butterscotch, maple
@@ -322,9 +328,9 @@ Return JSON in this EXACT structure:
   "description": "5-6 sentence direct-response description in Ogilvy style, grounded in label facts...",
   "product_type": "American Whiskey",
   "sub_type": "Straight Bourbon",
-  "nose": ["vanilla", "caramel", "oak", "baking spice"],
-  "palate": ["honey", "toffee", "dried fruit", "pepper"],
-  "finish": ["long", "warm", "oaky"],
+  "nose": [],
+  "palate": [],
+  "finish": [],
   "country": "USA",
   "region": "Kentucky",
   "cask_wood": ["American White Oak"],
@@ -347,10 +353,14 @@ Return JSON in this EXACT structure:
 `;
 
   let webContext = "";
-  if (webResearch?.summary || webResearch?.tastingNotesSummary) {
+  if (webResearch) {
     webContext = `
 
 ## WEB RESEARCH (ground facts; do NOT invent)
+Query: ${webResearch?.query || ""}
+Status: ${webResearch?.status || "unknown"}
+${webResearch?.errorMessage ? `Error: ${webResearch.errorMessage}` : ""}
+
 ### Brand/spec context
 ${webResearch?.summary || "None"}
 
@@ -364,10 +374,26 @@ Rules for tasting notes:
 `;
   }
 
+  let priorsContext = "";
+  if (tastingPriors) {
+    const p = tastingPriors;
+    priorsContext = `
+
+## TASTING PRIORS (use when web evidence is missing)
+These are educated defaults based on category/finish/proof/producer patterns. Use them to avoid generic templates.
+Nose priors: ${(p?.nose || []).join(", ")}
+Palate priors: ${(p?.palate || []).join(", ")}
+Finish priors: ${(p?.finish || []).join(", ")}
+`;
+  }
+
   const userPrompt = `
 Optional notes from the user:
 ${notes || "No additional notes provided"}
 ${webContext}
+${priorsContext}
+
+TASTING MODE: ${tastingMode}
 
 TASK:
 1. CAREFULLY read ALL text on the bottle label
@@ -378,7 +404,10 @@ TASK:
 4. IDENTIFY WHAT MAKES THIS RELEASE UNIQUE - warehouse location, mashbill, allocation status, etc.
 5. Write a SPECIFIC description that tells the unique story of THIS bottle (not generic marketing)
 6. Include brand heritage and history context
-7. Generate tasting notes that connect to the production method AND the web tasting-note evidence (if provided). If the user notes include tasting descriptors, treat them as high-priority evidence.
+7. Generate tasting notes that connect to the production method AND the web tasting-note evidence (if provided).
+   - If TASTING MODE is web_grounded, prioritize the web snippets and choose the most consistent notes across sources.
+   - If TASTING MODE is inferred, start from the tasting priors and label facts. Do not reuse a generic bourbon template.
+   - If the user notes include tasting descriptors, treat them as high-priority evidence.
 8. Set limited_time_offer to TRUE if this is an allocated or limited release
 9. Include bottle size (750ml default) in the title
 
@@ -482,9 +511,36 @@ REMEMBER: Our customers are collectors who know whiskey. Tell them WHY this bott
   }
 
   // Ensure arrays for tasting notes
-  if (!Array.isArray(data.nose)) data.nose = data.nose ? [data.nose] : ["vanilla", "oak", "caramel"];
-  if (!Array.isArray(data.palate)) data.palate = data.palate ? [data.palate] : ["honey", "spice", "fruit"];
-  if (!Array.isArray(data.finish)) data.finish = data.finish ? [data.finish] : ["long", "warm"];
+  if (!Array.isArray(data.nose)) data.nose = data.nose ? [data.nose] : [];
+  if (!Array.isArray(data.palate)) data.palate = data.palate ? [data.palate] : [];
+  if (!Array.isArray(data.finish)) data.finish = data.finish ? [data.finish] : [];
+
+  // If the model under-specifies tasting notes, enrich with priors (prevents generic templates).
+  function mergeWithPriors(field, minLen, maxLen) {
+    const current = Array.isArray(data[field]) ? data[field].map(v => String(v ?? "").trim()).filter(Boolean) : [];
+    const pri = Array.isArray(tastingPriors?.[field]) ? tastingPriors[field].map(v => String(v ?? "").trim()).filter(Boolean) : [];
+    const merged = [];
+    const seen = new Set();
+    for (const v of [...current, ...pri]) {
+      if (!v || seen.has(v)) continue;
+      seen.add(v);
+      merged.push(v);
+    }
+    // If still short, add very safe category-neutral fillers.
+    const fillers = field === "finish" ? ["warm", "medium"] : ["oak", "baking spice"];
+    for (const f of fillers) {
+      if (merged.length >= minLen) break;
+      if (!seen.has(f)) {
+        seen.add(f);
+        merged.push(f);
+      }
+    }
+    data[field] = merged.slice(0, maxLen);
+  }
+
+  mergeWithPriors("nose", 3, 5);
+  mergeWithPriors("palate", 3, 5);
+  mergeWithPriors("finish", 2, 4);
 
   // Defaults for missing structured fields
   data.product_type = data.product_type || "American Whiskey";
@@ -585,6 +641,20 @@ REMEMBER: Our customers are collectors who know whiskey. Tell them WHY this bott
       console.error("AI VALIDATION FAILED:", field, data[field]);
       throw new Error(`AI missing or invalid field: ${field}`);
     }
+  }
+
+  // Enforce tasting-note completeness (prevents empty arrays after anti-anchoring changes)
+  if (!Array.isArray(data.nose) || data.nose.length < 3) {
+    console.error("AI VALIDATION FAILED: nose", data.nose);
+    throw new Error("AI missing or invalid field: nose");
+  }
+  if (!Array.isArray(data.palate) || data.palate.length < 3) {
+    console.error("AI VALIDATION FAILED: palate", data.palate);
+    throw new Error("AI missing or invalid field: palate");
+  }
+  if (!Array.isArray(data.finish) || data.finish.length < 2) {
+    console.error("AI VALIDATION FAILED: finish", data.finish);
+    throw new Error("AI missing or invalid field: finish");
   }
 
   // ABV is allowed to be blank only when the model explicitly signals it couldn't find it.
