@@ -58,7 +58,7 @@ client.on("interactionCreate", async interaction => {
         });
 
         await logThread.send({
-          content: `🧪 Started by <@${interaction.user.id}>. Logs for this run will be posted in this thread.`
+          content: `🧪 Started by ${interaction.user.username}. Logs for this run will be posted in this thread.`
         });
       }
     } catch (e) {
