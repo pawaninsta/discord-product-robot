@@ -98,6 +98,40 @@ TASK:
     console.error("RAW STRING:", raw);
     throw new Error("AI returned invalid JSON");
   }
+// -------------------------
+// NORMALIZE AI SCHEMA
+// -------------------------
+
+// Build title if missing
+if (!data.title) {
+  if (data.brand && data.product_name) {
+    data.title = `${data.brand} ${data.product_name}`;
+  } else if (data.product_name) {
+    data.title = data.product_name;
+  }
+}
+
+// Flatten tasting notes if nested
+if (data.tasting_notes) {
+  data.nose = data.nose || data.tasting_notes.nose;
+  data.palate = data.palate || data.tasting_notes.palate;
+  data.finish = data.finish || data.tasting_notes.finish;
+}
+
+// Defaults for missing structured fields
+data.sub_type = data.sub_type || "Straight Bourbon Whiskey";
+data.country = data.country || "USA";
+data.region = data.region || "Kentucky";
+data.cask_wood = data.cask_wood || "American Oak";
+data.finish_type = data.finish_type || "None";
+data.age_statement = data.age_statement || "NAS";
+
+// Boolean defaults
+data.finished = Boolean(data.finished);
+data.store_pick = Boolean(data.store_pick);
+data.cask_strength = Boolean(data.cask_strength);
+data.single_barrel = Boolean(data.single_barrel);
+data.limited_time_offer = Boolean(data.limited_time_offer);
 
   // -------------------------
   // HARD VALIDATION
