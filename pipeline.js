@@ -50,13 +50,32 @@ export async function runPipeline({ image, cost, price, notes }) {
       cost,
       imageUrl: finalImageUrl,
       metafields: [
-        mf("nose", aiData.nose),
-        mf("palate", aiData.palate),
-        mf("finish", aiData.finish),
-        mf("alcohol_by_volume", aiData.abv),
-        mf("region", aiData.region),
-        mf("country_of_origin", aiData.country)
-      ]
+  mf("nose", aiData.nose),
+  mf("palate", aiData.palate),
+  mf("finish", aiData.finish),
+  mf("sub_type", aiData.sub_type),
+  mf("country_of_origin", aiData.country),
+  mf("region", aiData.region),
+  mf("cask_wood", aiData.cask_wood),
+  mf("finish_type", aiData.finish_type),
+  mf("age_statement", aiData.age_statement),
+  mf("alcohol_by_volume", aiData.abv),
+
+  mb("finished", aiData.finished),
+  mb("store_pick", aiData.store_pick),
+  mb("cask_strength", aiData.cask_strength),
+  mb("single_barrel", aiData.single_barrel),
+  mb("limited_time_offer", aiData.limited_time_offer)
+]
+function mb(key, value) {
+  return {
+    namespace: "custom",
+    key,
+    value: Boolean(value),
+    type: "boolean"
+  };
+}
+
     });
 
     console.log("STEP 3 COMPLETE: Shopify product created:", {
