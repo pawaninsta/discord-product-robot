@@ -5,6 +5,78 @@ const openai = new OpenAI({
 });
 
 /**
+ * Extract high-signal label facts and flags (ABV/proof, store pick, single barrel).
+ * This is intentionally narrow and deterministic vs the full listing generation.
+ */
+export async function extractLabelSignals({ notes, imageUrl }) {
+  if (!imageUrl) throw new Error("extractLabelSignals requires imageUrl");
+
+  const system = `
+You are extracting facts from a whiskey bottle label image.
+Return ONLY valid JSON.
+
+Rules:
+- If ABV/proof is NOT explicitly visible, do not guess. Leave abv="" and proof="" and set needs_abv=true.
+- Detect store pick signals: retail logos, stickers, "store pick", "private selection", "@whiskeylibrary", etc.
+- Detect single barrel signals: "single barrel", "single cask", barrel selection language.
+
+JSON shape:
+{
+  "abv": "",
+  "proof": "",
+  "needs_abv": true,
+  "store_pick": false,
+  "single_barrel": false,
+  "evidence": ["short phrases you read on the label"],
+  "confidence": { "abv": 0, "store_pick": 0, "single_barrel": 0 }
+}
+`;
+
+  const user = `
+Notes from user (may include ABV/proof/store pick info):
+${notes || ""}
+`;
+
+  const resp = await openai.chat.completions.create({
+    model: "gpt-4o",
+    temperature: 0,
+    messages: [
+      { role: "system", content: system },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: user },
+          { type: "image_url", image_url: { url: imageUrl, detail: "high" } }
+        ]
+      }
+    ],
+    response_format: { type: "json_object" }
+  });
+
+  const raw = resp?.choices?.[0]?.message?.content || "{}";
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = {};
+  }
+
+  return {
+    abv: String(data.abv || "").trim(),
+    proof: String(data.proof || "").trim(),
+    needs_abv: Boolean(data.needs_abv),
+    store_pick: Boolean(data.store_pick),
+    single_barrel: Boolean(data.single_barrel),
+    evidence: Array.isArray(data.evidence) ? data.evidence.map(String).slice(0, 10) : [],
+    confidence: {
+      abv: Number(data.confidence?.abv || 0),
+      store_pick: Number(data.confidence?.store_pick || 0),
+      single_barrel: Number(data.confidence?.single_barrel || 0)
+    }
+  };
+}
+
+/**
  * Generate structured product data for Shopify
  * Uses IMAGE + NOTES + optional web research (Vision enabled)
  */
@@ -161,7 +233,8 @@ Return JSON in this EXACT structure:
   "cask_wood": ["American White Oak"],
   "finish_type": "None",
   "age_statement": "NAS",
-  "abv": "45%",
+  "abv": "",
+  "needs_abv": false,
   "volume_ml": 750,
   "awards": "",
   "batch_number": "",
@@ -202,6 +275,10 @@ TASK:
 7. Generate tasting notes that connect to the production method
 8. Set limited_time_offer to TRUE if this is an allocated or limited release
 9. Include bottle size (750ml default) in the title
+
+CRITICAL ABV RULE:
+- If ABV / proof is NOT explicitly visible on the label AND not present in the notes/web research, DO NOT GUESS.
+- Set "abv" to "" and set "needs_abv" to true.
 
 REMEMBER: Our customers are collectors who know whiskey. Tell them WHY this bottle is special.
 `;
@@ -313,6 +390,7 @@ REMEMBER: Our customers are collectors who know whiskey. Tell them WHY this bott
   data.age_statement = data.age_statement || "NAS";
   data.volume_ml = data.volume_ml || 750;
   data.awards = data.awards || "";
+  data.needs_abv = Boolean(data.needs_abv);
   data.batch_number = data.batch_number || "";
   data.barrel_number = data.barrel_number || "";
 
@@ -393,8 +471,7 @@ REMEMBER: Our customers are collectors who know whiskey. Tell them WHY this bott
     "country",
     "region",
     "cask_wood",
-    "age_statement",
-    "abv"
+    "age_statement"
   ];
 
   for (const field of requiredFields) {
@@ -402,6 +479,12 @@ REMEMBER: Our customers are collectors who know whiskey. Tell them WHY this bott
       console.error("AI VALIDATION FAILED:", field, data[field]);
       throw new Error(`AI missing or invalid field: ${field}`);
     }
+  }
+
+  // ABV is allowed to be blank only when the model explicitly signals it couldn't find it.
+  if (isBad(data.abv) && !data.needs_abv) {
+    console.error("AI VALIDATION FAILED: abv", data.abv);
+    throw new Error("AI missing or invalid field: abv");
   }
 
   console.log("AI STEP COMPLETE: Product data generated");

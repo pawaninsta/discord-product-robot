@@ -10,7 +10,7 @@ export async function generateStudioImage(imageUrl) {
   console.log("IMAGE: Input URL:", imageUrl);
 
   // #region agent log
-  (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H1',location:'image.js:12',message:'generateStudioImage entry',data:{hasGoogleAiKey:Boolean(process.env.GOOGLE_AI_API_KEY),imageUrlHost:(()=>{try{return new URL(imageUrl).host;}catch{return null;}})()},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
+  (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H1',location:'image.js:12',message:'generateStudioImage entry',data:{hasGoogleAiKey:Boolean(process.env.GOOGLE_AI_API_KEY),googleApiVersion:process.env.GOOGLE_API_VERSION||'v1',googleImageModel:process.env.GOOGLE_IMAGE_MODEL||'gemini-1.5-flash',imageUrlHost:(()=>{try{return new URL(imageUrl).host;}catch{return null;}})()},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
   // #endregion
 
   if (!process.env.GOOGLE_AI_API_KEY) {
@@ -38,17 +38,19 @@ export async function generateStudioImage(imageUrl) {
  */
 async function generateWithGemini(imageUrl) {
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+  const apiVersion = process.env.GOOGLE_API_VERSION || "v1";
   
   // Use Gemini model with image generation capability
+  const modelName = process.env.GOOGLE_IMAGE_MODEL || "gemini-1.5-flash";
   const model = genAI.getGenerativeModel({
     // NOTE: The previous model id was returning 404 in Railway logs.
     // This SDK version (@google/generative-ai@0.21.0) documents Gemini 1.5 models.
     // You can override with GOOGLE_IMAGE_MODEL if your account supports a newer image-capable model.
-    model: process.env.GOOGLE_IMAGE_MODEL || "gemini-1.5-flash",
+    model: modelName,
     generationConfig: {
       temperature: 0.4,
     },
-  });
+  }, { apiVersion });
 
   // Fetch the image and convert to base64
   const imageResponse = await fetch(imageUrl);
@@ -101,6 +103,18 @@ Do not alter the product in any way - just isolate it and place it on the white 
     return null;
   } catch (err) {
     console.error("IMAGE: Gemini API error:", err.message);
+    // If model is not found/supported, list available models to guide configuration.
+    if (String(err?.message || "").includes("models/") && String(err?.message || "").includes("not found")) {
+      try {
+        const listUrl = `https://generativelanguage.googleapis.com/${apiVersion}/models?key=${encodeURIComponent(process.env.GOOGLE_AI_API_KEY)}`;
+        const res = await fetch(listUrl);
+        const json = await res.json().catch(() => null);
+        const names = Array.isArray(json?.models) ? json.models.map(m => m?.name).filter(Boolean).slice(0, 20) : [];
+        console.error("IMAGE: Available models (first 20):", names.join(", ") || "(none)");
+      } catch (listErr) {
+        console.error("IMAGE: Failed to list models:", listErr?.message || String(listErr));
+      }
+    }
     throw err;
   }
 }

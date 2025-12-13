@@ -1,6 +1,8 @@
 import { generateProductData } from "./ai.js";
 import { generateStudioImage } from "./image.js";
 import { createDraftProduct } from "./shopify.js";
+import { searchWhiskeyInfo } from "./search.js";
+import { extractLabelSignals } from "./ai.js";
 import fetch from "node-fetch";
 
 /**
@@ -22,17 +24,59 @@ export async function runPipeline({ image, cost, price, notes }) {
     console.log("STEP 1 COMPLETE: Image URL:", finalImageUrl);
 
     // -------------------------
-    // STEP 2: AI (VISION)
+    // STEP 2: AI (VISION) + RESEARCH + SIGNALS
     // -------------------------
     await send("🧠 Writing product listing…");
     console.log("STEP 2: Calling generateProductData");
 
+    // Extract a few high-signal facts first (ABV/proof, store pick, single barrel)
+    let signals = null;
+    try {
+      signals = await extractLabelSignals({ notes, imageUrl: finalImageUrl });
+      console.log("SIGNALS:", JSON.stringify(signals));
+    } catch (sigErr) {
+      console.warn("SIGNALS: failed:", sigErr?.message || String(sigErr));
+    }
+
+    // Optional web research to reduce generic output
+    let webResearch = null;
+    try {
+      const query = signals?.store_pick
+        ? `${signals?.evidence?.[0] || ""} ${signals?.evidence?.[1] || ""}`.trim()
+        : "";
+      // Fall back to vendor/title once we have aiData if this returns empty.
+      if (query) webResearch = await searchWhiskeyInfo(query);
+    } catch (webErr) {
+      console.warn("SEARCH: failed:", webErr?.message || String(webErr));
+    }
+
+    const notesWithSignals = [
+      notes || "",
+      signals ? `\n\nLABEL SIGNALS (detected): ${JSON.stringify({ store_pick: signals.store_pick, single_barrel: signals.single_barrel, abv: signals.abv, proof: signals.proof, evidence: signals.evidence })}` : ""
+    ].join("");
+
     const aiData = await generateProductData({
-      notes,
-      imageUrl: finalImageUrl
+      notes: notesWithSignals,
+      imageUrl: finalImageUrl,
+      webResearch
     });
 
+    // Merge signals into aiData if they are higher confidence
+    if (signals) {
+      if (signals.store_pick) aiData.store_pick = true;
+      if (signals.single_barrel) aiData.single_barrel = true;
+      if (signals.abv && !String(aiData.abv || "").trim()) aiData.abv = signals.abv;
+      if (signals.needs_abv) aiData.needs_abv = true;
+    }
+
     console.log("STEP 2 COMPLETE: AI DATA:", aiData);
+
+    // If ABV couldn't be found, ask the user and stop before creating the Shopify product.
+    if (aiData.needs_abv || !String(aiData.abv || "").trim()) {
+      await send("❓ I couldn’t find ABV/proof on the label. Please re-run `/create-product` and include it in **notes** like `ABV: 53.5%` (or `Proof: 107`).");
+      console.log("PIPELINE STOP: Missing ABV; user clarification requested");
+      return;
+    }
 
     // -------------------------
     // STEP 3: SHOPIFY
