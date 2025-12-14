@@ -1,5 +1,4 @@
 import fetch from "node-fetch";
-import sharp from "sharp";
 
 /**
  * Generate a studio product shot with white background
@@ -56,100 +55,18 @@ async function generateWithGeminiImage(imageUrl) {
   const base64Image = Buffer.from(imageBuffer).toString("base64");
   const mimeType = imageResponse.headers.get("content-type") || "image/png";
 
-  async function forcePureWhiteBackgroundDataUrl(dataUrl) {
-    try {
-      const match = /^data:([^;]+);base64,(.*)$/s.exec(String(dataUrl || ""));
-      if (!match) return dataUrl;
-
-      const inBuf = Buffer.from(match[2], "base64");
-      const { data, info } = await sharp(inBuf)
-        .ensureAlpha()
-        .raw()
-        .toBuffer({ resolveWithObject: true });
-
-      const { width, height, channels } = info;
-      if (!width || !height || channels < 3) return dataUrl;
-
-      const w = width;
-      const h = height;
-      const visited = new Uint8Array(w * h);
-      const queue = new Uint32Array(w * h);
-      let head = 0;
-      let tail = 0;
-
-      function idxOf(x, y) {
-        return y * w + x;
-      }
-
-      function isNearWhiteAtIndex(idx) {
-        const o = idx * channels;
-        const r = data[o];
-        const g = data[o + 1];
-        const b = data[o + 2];
-        const max = r > g ? (r > b ? r : b) : (g > b ? g : b);
-        const min = r < g ? (r < b ? r : b) : (g < b ? g : b);
-        // Accept slightly-off whites (e.g. light gray) while rejecting saturated areas.
-        // Tune conservatively to avoid eating into the bottle.
-        return max >= 242 && (max - min) <= 18;
-      }
-
-      function pushIfBackground(x, y) {
-        const idx = idxOf(x, y);
-        if (visited[idx]) return;
-        if (!isNearWhiteAtIndex(idx)) return;
-        visited[idx] = 1;
-        queue[tail++] = idx;
-      }
-
-      // Seed from border pixels (background touches edges in a packshot).
-      for (let x = 0; x < w; x++) {
-        pushIfBackground(x, 0);
-        pushIfBackground(x, h - 1);
-      }
-      for (let y = 0; y < h; y++) {
-        pushIfBackground(0, y);
-        pushIfBackground(w - 1, y);
-      }
-
-      // Flood fill 4-neighborhood over near-white pixels connected to border.
-      while (head < tail) {
-        const idx = queue[head++];
-        const y = Math.floor(idx / w);
-        const x = idx - y * w;
-
-        if (x > 0) pushIfBackground(x - 1, y);
-        if (x + 1 < w) pushIfBackground(x + 1, y);
-        if (y > 0) pushIfBackground(x, y - 1);
-        if (y + 1 < h) pushIfBackground(x, y + 1);
-      }
-
-      // Force visited background pixels to pure white.
-      for (let i = 0; i < visited.length; i++) {
-        if (!visited[i]) continue;
-        const o = i * channels;
-        data[o] = 255;
-        data[o + 1] = 255;
-        data[o + 2] = 255;
-        // Preserve alpha channel if present.
-      }
-
-      const outBuf = await sharp(data, { raw: { width: w, height: h, channels } })
-        .png({ compressionLevel: 9, adaptiveFiltering: true })
-        .toBuffer();
-
-      return `data:image/png;base64,${outBuf.toString("base64")}`;
-    } catch (e) {
-      console.warn("IMAGE: Failed to force pure white background:", e?.message || String(e));
-      return dataUrl;
-    }
-  }
-
   // Gemini responds best when the edit request is explicit and structured.
   // We embed a JSON "edit spec" to reduce ambiguity and ensure hands/props are removed.
   function buildEditPrompt({ strict = false } = {}) {
     const spec = {
       goal: "studio_packshot",
-      background: { type: "solid", color: "#FFFFFF", seamless: true },
+      background: {
+        type: "solid",
+        // IMPORTANT: request pure white; no off-white, no gradient, no vignette.
+        color: "#FFFFFF",
+        seamless: true,
+        uniform_pixels: true
+      },
       subject: {
         type: "single_bottle",
         preserve_identity: true,
@@ -168,7 +85,6 @@ async function generateWithGeminiImage(imageUrl) {
         "stands",
         "shelves",
         "price_tags",
-        "stickers_not_part_of_label",
         "background_objects"
       ],
       inpaint: {
@@ -178,7 +94,9 @@ async function generateWithGeminiImage(imageUrl) {
       },
       lighting: {
         style: "soft_even_studio",
-        shadows: "minimal_natural_only",
+        // Users asked for pure white, not off-white. Shadows often tint the background.
+        // So explicitly request no visible cast shadow on the background.
+        shadows: "none",
         avoid_harsh_cast_shadows: true
       },
       composition: {
@@ -197,13 +115,16 @@ async function generateWithGeminiImage(imageUrl) {
         "label_changes",
         "color_shifts",
         "distortion",
-        "stylization"
+        "stylization",
+        "background_gradient",
+        "background_vignette",
+        "off_white_background"
       ],
       output: { single_image: true }
     };
 
     return [
-      "You are a professional product-photo retoucher.",
+      "You are a professional product-photo retoucher for e-commerce packshots.",
       "Edit the provided image to match the JSON edit spec exactly.",
       "Return only the edited image. Do not add any text overlays or borders.",
       "",
@@ -213,8 +134,8 @@ async function generateWithGeminiImage(imageUrl) {
       strict
         ? "CRITICAL: If ANY human hand/fingers/arm is visible, it MUST be completely removed. Reconstruct any hidden parts of the bottle/label/glass realistically so the final image looks like a clean bottle-only studio shot."
         : "If hands/props are present, remove them cleanly and reconstruct any hidden bottle areas.",
-      "CRITICAL: Background must be PERFECT pure white (#FFFFFF) with NO gradient and NO off-white tint.",
-      "CRITICAL: The final image must look like a clean e-commerce packshot: centered, even studio lighting, everything visible."
+      "CRITICAL BACKGROUND: The background must be a uniform, pixel-pure #FFFFFF (RGB 255,255,255). No gradients, no vignette, no off-white.",
+      "CRITICAL COMPOSITION: Center the bottle, keep the full bottle visible, and frame so the bottle is ~92–96% of the image height."
     ].join("\n");
   }
 
@@ -231,9 +152,44 @@ async function generateWithGeminiImage(imageUrl) {
     return false;
   }
 
+  function getDesiredImageSizes() {
+    // Docs indicate imageSize supports: 1K, 2K, 4K (model-dependent).
+    const requested = String(process.env.GOOGLE_IMAGE_SIZE || "4K").trim().toUpperCase();
+    const options = [requested, "4K", "2K", "1K"];
+    const seen = new Set();
+    return options.filter(v => v && !seen.has(v) && seen.add(v));
+  }
+
   try {
     const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${modelName}:generateContent`;
-    async function callGemini({ promptText }) {
+    const outputMimeType = String(process.env.GOOGLE_IMAGE_OUTPUT_MIME || "image/png").trim() || "image/png";
+
+    function buildImageConfig({ imageSize, includeOutputOptions }) {
+      const cfg = {
+        aspectRatio: "1:1",
+        ...(imageSize ? { imageSize } : {})
+      };
+      if (includeOutputOptions) {
+        // Prefer PNG to reduce compression artifacts that can look "off-white"
+        // (schema is model/API dependent; if unsupported, we fall back below).
+        cfg.imageOutputOptions = { mimeType: outputMimeType };
+      }
+      return cfg;
+    }
+
+    function isUnsupportedConfigError(err) {
+      const msg = String(err?.message || "").toLowerCase();
+      // Typical REST error strings for unknown/unsupported fields.
+      return (
+        msg.includes("unknown name") ||
+        msg.includes("cannot find field") ||
+        msg.includes("invalid value") ||
+        msg.includes("imageoutputoptions") ||
+        msg.includes("imagesize")
+      );
+    }
+
+    async function callGemini({ promptText, imageSize, includeOutputOptions = true }) {
       const res = await fetch(url, {
         method: "POST",
         headers: {
@@ -251,7 +207,7 @@ async function generateWithGeminiImage(imageUrl) {
             // Lower temperature for more consistent, constraint-following edits.
             temperature: 0.2,
             // Image models use imageConfig; keep it minimal for compatibility.
-            imageConfig: { aspectRatio: "1:1" }
+            imageConfig: buildImageConfig({ imageSize, includeOutputOptions })
           }
         })
       });
@@ -259,19 +215,22 @@ async function generateWithGeminiImage(imageUrl) {
       const json = await res.json().catch(() => null);
 
       // #region agent log
-      (()=>{const cand=json?.candidates?.[0];const parts=Array.isArray(cand?.content?.parts)?cand.content.parts:[];const payload={sessionId:'debug-session',runId:'post-fix',hypothesisId:'H3',location:'image.js:callGemini',message:'Gemini image response candidate shape',data:{httpStatus:res.status,ok:res.ok,hasCandidates:Boolean(json?.candidates?.length),partsCount:parts.length,hasInlineData:parts.some(p=>Boolean(p?.inlineData?.data))},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
+      (()=>{const cand=json?.candidates?.[0];const parts=Array.isArray(cand?.content?.parts)?cand.content.parts:[];const payload={sessionId:'debug-session',runId:'post-fix',hypothesisId:'H3',location:'image.js:callGemini',message:'Gemini image response candidate shape',data:{httpStatus:res.status,ok:res.ok,hasCandidates:Boolean(json?.candidates?.length),partsCount:parts.length,hasInlineData:parts.some(p=>Boolean(p?.inlineData?.data)),imageSize:imageSize||null,outputMimeType},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
       // #endregion
 
       if (!res.ok) {
         const msg = json?.error?.message || JSON.stringify(json)?.slice(0, 300) || `HTTP ${res.status}`;
-        throw new Error(`Gemini image API error (${res.status}): ${msg}`);
+        const error = new Error(`Gemini image API error (${res.status}): ${msg}`);
+        error.status = res.status;
+        error.details = msg;
+        throw error;
       }
 
       const candidate = json?.candidates?.[0];
       const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
       for (const part of parts) {
         if (part?.inlineData?.data) {
-          const outMime = part.inlineData.mimeType || "image/png";
+          const outMime = part.inlineData.mimeType || outputMimeType || "image/png";
           const outBase64 = part.inlineData.data;
           return { outMime, outBase64 };
         }
@@ -280,28 +239,72 @@ async function generateWithGeminiImage(imageUrl) {
       return null;
     }
 
-    // Attempt 1: JSON spec
-    const attempt1 = await callGemini({ promptText: buildEditPrompt({ strict: false }) });
-    if (attempt1?.outBase64) {
-      const unchanged = isLikelyUnchangedOutput({ outBase64: attempt1.outBase64, inBase64: base64Image });
-      if (!unchanged) {
-        const dataUrl = `data:${attempt1.outMime};base64,${attempt1.outBase64}`;
-        return await forcePureWhiteBackgroundDataUrl(dataUrl);
-      }
-      console.warn("IMAGE: Gemini output looks unchanged; retrying with stricter hand/prop removal prompt");
-    } else {
-      console.warn("IMAGE: Gemini did not return image data; retrying once");
-    }
+    const sizesToTry = getDesiredImageSizes();
 
-    // Attempt 2: stricter instruction (hand/prop removal + reconstruction)
-    const attempt2 = await callGemini({ promptText: buildEditPrompt({ strict: true }) });
-    if (attempt2?.outBase64) {
-      const unchanged = isLikelyUnchangedOutput({ outBase64: attempt2.outBase64, inBase64: base64Image });
-      if (!unchanged) {
-        const dataUrl = `data:${attempt2.outMime};base64,${attempt2.outBase64}`;
-        return await forcePureWhiteBackgroundDataUrl(dataUrl);
+    for (const imageSize of sizesToTry) {
+      // Attempt 1: JSON spec
+      let attempt1 = null;
+      try {
+        attempt1 = await callGemini({ promptText: buildEditPrompt({ strict: false }), imageSize });
+      } catch (e) {
+        // Some models reject output config fields. Retry once without output options.
+        if (isUnsupportedConfigError(e)) {
+          try {
+            attempt1 = await callGemini({
+              promptText: buildEditPrompt({ strict: false }),
+              imageSize,
+              includeOutputOptions: false
+            });
+          } catch (e2) {
+            console.warn(`IMAGE: Gemini call failed for imageSize=${imageSize}:`, e2?.message || String(e2));
+            continue;
+          }
+        } else {
+          // If model rejects the imageSize, fall back to smaller sizes.
+          console.warn(`IMAGE: Gemini call failed for imageSize=${imageSize}:`, e?.message || String(e));
+          continue;
+        }
       }
-      console.warn("IMAGE: Gemini output still looks unchanged after retry");
+
+      if (attempt1?.outBase64) {
+        const unchanged = isLikelyUnchangedOutput({ outBase64: attempt1.outBase64, inBase64: base64Image });
+        if (!unchanged) {
+          return `data:${attempt1.outMime};base64,${attempt1.outBase64}`;
+        }
+        console.warn(`IMAGE: Gemini output looks unchanged (imageSize=${imageSize}); retrying strict prompt once`);
+      } else {
+        console.warn(`IMAGE: Gemini did not return image data (imageSize=${imageSize}); retrying strict prompt once`);
+      }
+
+      // Attempt 2: stricter instruction (hand/prop removal + reconstruction)
+      let attempt2 = null;
+      try {
+        attempt2 = await callGemini({ promptText: buildEditPrompt({ strict: true }), imageSize });
+      } catch (e) {
+        if (isUnsupportedConfigError(e)) {
+          try {
+            attempt2 = await callGemini({
+              promptText: buildEditPrompt({ strict: true }),
+              imageSize,
+              includeOutputOptions: false
+            });
+          } catch (e2) {
+            console.warn(`IMAGE: Gemini strict call failed for imageSize=${imageSize}:`, e2?.message || String(e2));
+            continue;
+          }
+        } else {
+          console.warn(`IMAGE: Gemini strict call failed for imageSize=${imageSize}:`, e?.message || String(e));
+          continue;
+        }
+      }
+
+      if (attempt2?.outBase64) {
+        const unchanged = isLikelyUnchangedOutput({ outBase64: attempt2.outBase64, inBase64: base64Image });
+        if (!unchanged) {
+          return `data:${attempt2.outMime};base64,${attempt2.outBase64}`;
+        }
+        console.warn(`IMAGE: Gemini output still looks unchanged after retry (imageSize=${imageSize})`);
+      }
     }
 
     console.log("IMAGE: Response did not contain usable image data");
