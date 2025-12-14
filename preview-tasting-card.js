@@ -25,34 +25,73 @@ const TEMPLATE_HTML = readFileSync(TEMPLATE_PATH, "utf-8");
 // Sample product data (Smoke Wagon as example)
 const SAMPLE_DATA = {
   title: "Smoke Wagon Straight Bourbon Whiskey 750ml",
-  imageUrl: "https://cdn.shopify.com/s/files/1/0740/7261/6785/files/smoke-wagon-straight-bourbon.png?v=1699574400",
+  imageUrl: generatePlaceholderBottle(),
   countryFlagUrl: "https://flagcdn.com/w80/us.png",
-  location: "Nevada, USA",
-  subType: "Straight Bourbon",
-  ageStatement: "NAS",  // Will be hidden since it's NAS
-  abvDisplay: "46.25% (≈93 proof)",
-  price: "$34.99",
-  description: "Smoke Wagon Straight Bourbon is crafted by Aaron Chepenik at the Nevada H&C Distilling Co. in Las Vegas. This small-batch bourbon uses a high-rye mashbill sourced from MGP in Indiana, aged in new charred American oak barrels. The result is a bold, spicy bourbon with exceptional depth that punches well above its price point.",
-  nose: "Honey, vanilla custard, toasted oak, caramel corn, light baking spice",
-  palate: "Creamy caramel, toffee, gentle rye spice, dark fruit, cinnamon",
-  finish: "Medium-long with caramel sweetness, oak tannins, and a peppery fade",
+  location: "Nevada, United States",
+  subType: null,  // Not shown in reference image
+  ageStatement: "NAS",
+  abvDisplay: "46.25% (≈92.5 proof)",
+  price: "$29.99",
+  description: "Smoke Wagon Straight Bourbon is the brand's approachable entry-level bourbon designed as an everyday sipper with a distinctive profile from its high-rye mash bill and warehouse aging in the heat of Nevada. The bourbon is blended from multiple sourced barrels and aged on top floors for extra wood influence, then bottled non-chill-filtered to retain character and mouthfeel. Its combination of sweet and spicy elements reflects Smoke Wagon's signature style — offering a flavorful yet gentle introduction to its broader lineup.",
+  nose: "Honey, vanilla custard, toasted nuts and light oak",
+  palate: "Creamy caramel and toffee, gentle rye spice, apple and pepper",
+  finish: "Medium with caramel sweetness, light tobacco, lingering rye warmth",
   qrCodeDataUrl: generatePlaceholderQR()
 };
+
+/**
+ * Generate a placeholder bottle image
+ */
+function generatePlaceholderBottle() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450">
+      <defs>
+        <linearGradient id="bottleGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" style="stop-color:#2a1810"/>
+          <stop offset="30%" style="stop-color:#4a2820"/>
+          <stop offset="70%" style="stop-color:#3a1815"/>
+          <stop offset="100%" style="stop-color:#1a0808"/>
+        </linearGradient>
+        <linearGradient id="labelGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" style="stop-color:#f5e6d3"/>
+          <stop offset="100%" style="stop-color:#d4c4a8"/>
+        </linearGradient>
+      </defs>
+      <!-- Bottle neck -->
+      <rect x="125" y="20" width="50" height="60" fill="url(#bottleGrad)" rx="3"/>
+      <!-- Bottle cap -->
+      <rect x="120" y="5" width="60" height="20" fill="#1a0808" rx="3"/>
+      <!-- Bottle body -->
+      <path d="M90 80 L90 420 Q90 440 110 440 L190 440 Q210 440 210 420 L210 80 Q210 70 175 70 L125 70 Q90 70 90 80" fill="url(#bottleGrad)"/>
+      <!-- Label background -->
+      <rect x="100" y="150" width="100" height="180" fill="url(#labelGrad)" rx="4"/>
+      <!-- Label text lines -->
+      <text x="150" y="190" text-anchor="middle" font-family="Georgia, serif" font-size="12" font-weight="bold" fill="#2a1810">SMOKE</text>
+      <text x="150" y="210" text-anchor="middle" font-family="Georgia, serif" font-size="12" font-weight="bold" fill="#2a1810">WAGON</text>
+      <line x1="115" y1="225" x2="185" y2="225" stroke="#b27821" stroke-width="1"/>
+      <text x="150" y="250" text-anchor="middle" font-family="Georgia, serif" font-size="9" fill="#4a4a4a">STRAIGHT</text>
+      <text x="150" y="265" text-anchor="middle" font-family="Georgia, serif" font-size="9" fill="#4a4a4a">BOURBON</text>
+      <text x="150" y="280" text-anchor="middle" font-family="Georgia, serif" font-size="9" fill="#4a4a4a">WHISKEY</text>
+      <text x="150" y="310" text-anchor="middle" font-family="Georgia, serif" font-size="8" fill="#666">750ml</text>
+    </svg>
+  `;
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+}
 
 /**
  * Generate a simple placeholder QR code (gray square with text)
  */
 function generatePlaceholderQR() {
-  // Create a simple SVG placeholder for the QR code (220x220 to match new size)
+  // Create a simple SVG placeholder for the QR code (320x320 for better scannability)
   const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 220 220">
-      <rect width="220" height="220" fill="#f0f0f0" rx="8"/>
-      <rect x="25" y="25" width="170" height="170" fill="#1a1a1a" rx="4"/>
-      <rect x="40" y="40" width="50" height="50" fill="#ffffff"/>
-      <rect x="130" y="40" width="50" height="50" fill="#ffffff"/>
-      <rect x="40" y="130" width="50" height="50" fill="#ffffff"/>
-      <rect x="95" y="95" width="30" height="30" fill="#ffffff"/>
-      <text x="110" y="210" text-anchor="middle" font-family="Inter, sans-serif" font-size="11" fill="#666">whiskeylibrary.com</text>
+    <svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+      <rect width="320" height="320" fill="#f0f0f0" rx="8"/>
+      <rect x="35" y="35" width="250" height="250" fill="#1a1a1a" rx="4"/>
+      <rect x="60" y="60" width="75" height="75" fill="#ffffff"/>
+      <rect x="185" y="60" width="75" height="75" fill="#ffffff"/>
+      <rect x="60" y="185" width="75" height="75" fill="#ffffff"/>
+      <rect x="140" y="140" width="40" height="40" fill="#ffffff"/>
+      <text x="160" y="308" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#666">whiskeylibrary.com</text>
     </svg>
   `;
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
@@ -71,11 +110,10 @@ function escapeHtml(str) {
 }
 
 /**
- * Check if a value should be hidden (empty, dash, or NAS for age)
+ * Check if a value should be hidden (empty or dash only)
  */
 function shouldHideValue(value, fieldName) {
   if (!value || value === "—" || value === "-") return true;
-  if (fieldName === "age" && (value === "NAS" || value.toLowerCase() === "nas")) return true;
   return false;
 }
 
@@ -125,7 +163,7 @@ function buildSpecsRows(data) {
   if (!shouldHideValue(data.price, "price")) {
     rows.push(`
         <div class="spec-row">
-          <span class="label">$$</span>
+          <span class="label">$$$$</span>
           <span class="value">${data.price}</span>
         </div>`);
   }
