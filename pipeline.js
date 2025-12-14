@@ -143,11 +143,11 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
             errorHint ? `\nHint: ${errorHint}` : "",
             "\nI’ll infer tasting notes from label/producer patterns unless you fix the search setup."
           ].filter(Boolean);
-          await sendSafe(bits.join(""));
+          await send(bits.join(""));
         } else if (status === "disabled") {
-          await sendSafe("ℹ️ Web research is disabled (missing GOOGLE_API_KEY/GOOGLE_CX). I’ll infer tasting notes from label/producer patterns.");
+          await send("ℹ️ Web research is disabled (missing GOOGLE_API_KEY/GOOGLE_CX). I’ll infer tasting notes from label/producer patterns.");
         } else if (status === "ok" && !webResearch.tastingNotesSummary) {
-          await sendSafe("ℹ️ Web research ran, but I didn’t find tasting-note snippets for this bottle. I’ll infer tasting notes from label/producer patterns.");
+          await send("ℹ️ Web research ran, but I didn’t find tasting-note snippets for this bottle. I’ll infer tasting notes from label/producer patterns.");
         }
 
         tastingMode = webResearch.status === "ok" && Boolean(webResearch.tastingNotesSummary) ? "web_grounded" : "inferred";
