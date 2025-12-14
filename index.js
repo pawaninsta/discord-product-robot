@@ -91,8 +91,20 @@ client.on("interactionCreate", async interaction => {
     const mention = `<@${interaction.user.id}>`;
 
     if (result?.ok) {
+      const productTitle = String(result?.productTitle || "").trim();
+
+      // If we have a thread and a title, try to rename the thread to the product name.
+      if (logThread && productTitle) {
+        try {
+          await logThread.setName(safeThreadName(productTitle));
+        } catch (e) {
+          console.warn("THREAD: failed to rename thread:", e?.message || String(e));
+        }
+      }
+
       const lines = [
         `${mention} ✅ Product creation finished.`,
+        productTitle ? `**Product:** ${productTitle}` : "",
         result.adminUrl ? `Draft: ${result.adminUrl}` : "",
         result.needsAbv ? "⚠️ ABV/proof wasn't found with confidence, so **Alcohol by Volume** was left blank." : ""
       ].filter(Boolean);

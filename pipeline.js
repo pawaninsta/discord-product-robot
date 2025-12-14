@@ -24,8 +24,26 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
 
   let adminUrl = "";
   let needsAbv = false;
+  let productTitle = "";
 
   try {
+    // -------------------------
+    // INPUT ECHO (helps debugging)
+    // -------------------------
+    const inputLines = [
+      "🧾 Input",
+      image?.url ? `- Image: ${image.url}` : "- Image: (missing)",
+      typeof cost === "number" && Number.isFinite(cost) ? `- Cost: ${cost}` : "- Cost: (not provided)",
+      typeof price === "number" && Number.isFinite(price) ? `- Price: ${price}` : "- Price: (not provided)",
+      typeof abv === "number" && Number.isFinite(abv) ? `- ABV: ${abv}` : "",
+      typeof proof === "number" && Number.isFinite(proof) ? `- Proof: ${proof}` : "",
+      typeof quantity === "number" && Number.isFinite(quantity) ? `- Quantity: ${quantity}` : "",
+      barcode ? `- Barcode: ${barcode}` : "",
+      referenceLink ? `- Reference link: ${referenceLink}` : "",
+      notes ? `- Notes: ${String(notes).trim().slice(0, 500)}` : ""
+    ].filter(Boolean);
+    await sendSafe(inputLines.join("\n"));
+
     // -------------------------
     // STEP 1: IMAGE
     // -------------------------
@@ -176,6 +194,7 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
     }
 
     console.log("STEP 2 COMPLETE: AI DATA:", aiData);
+    productTitle = String(aiData?.title || "").trim();
 
     // If ABV couldn't be found, continue the workflow but omit ABV and notify the user at the end.
     needsAbv = Boolean(aiData.needs_abv) || !String(aiData.abv || "").trim();
@@ -236,15 +255,19 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
       throw new Error("Shopify product creation failed");
     }
 
+    // In case AI title was missing/blank, prefer what Shopify persisted.
+    productTitle = productTitle || String(product?.title || "").trim();
+
     adminUrl = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/products/${product.id}`;
 
-    await sendSafe(`✅ Draft created: ${adminUrl}`);
+    // Avoid duplicate links: the final completion message posts the admin URL.
+    await sendSafe("✅ Draft created.");
     if (needsAbv) {
       await sendSafe("⚠️ ABV/proof wasn’t found on the label with confidence, so I left **Alcohol by Volume** blank. Please fill it in manually or re-run with the **abv**/**proof** command options.");
     }
     console.log("PIPELINE SUCCESS:", adminUrl);
 
-    return { ok: true, adminUrl, needsAbv, productId: product.id };
+    return { ok: true, adminUrl, needsAbv, productId: product.id, productTitle };
   } catch (err) {
     console.error("PIPELINE ERROR:", err);
     await sendSafe(`❌ Pipeline failed: ${err?.message || String(err)}`);
