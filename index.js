@@ -45,8 +45,17 @@ client.on("interactionCreate", async interaction => {
       const result = await generateTastingCard({ adminUrl });
 
       if (result.success) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.js:47',message:'pngBuffer type before AttachmentBuilder',data:{isBuffer:Buffer.isBuffer(result.pngBuffer),constructorName:result.pngBuffer?.constructor?.name,byteLength:result.pngBuffer?.length||result.pngBuffer?.byteLength||null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
+
+        // FIX: Puppeteer returns Uint8Array in newer versions, Discord.js needs Buffer
+        const pngAsBuffer = Buffer.isBuffer(result.pngBuffer) 
+          ? result.pngBuffer 
+          : Buffer.from(result.pngBuffer);
+
         // Create attachment from PNG buffer
-        const attachment = new AttachmentBuilder(result.pngBuffer, {
+        const attachment = new AttachmentBuilder(pngAsBuffer, {
           name: `tasting-card-${result.productHandle}.png`
         });
 
