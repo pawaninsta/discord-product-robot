@@ -1,5 +1,6 @@
 import fetch from "node-fetch";
 import FormData from "form-data";
+import { Readable } from "stream";
 
 const SHOP = process.env.SHOPIFY_STORE_DOMAIN;
 const TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
@@ -170,9 +171,12 @@ export async function uploadFileToShopify(pngBuffer, filename = "tasting-card.pn
   for (const param of target.parameters) {
     formData.append(param.name, param.value);
   }
-  formData.append("file", pngBuffer, {
+  // Convert Buffer to Readable stream for form-data library compatibility
+  const bufferStream = Readable.from(pngBuffer);
+  formData.append("file", bufferStream, {
     filename,
-    contentType: "image/png"
+    contentType: "image/png",
+    knownLength: pngBuffer.length
   });
 
   const uploadRes = await fetch(target.url, {
