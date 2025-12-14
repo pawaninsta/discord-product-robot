@@ -4,6 +4,44 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+const MAX_DESCRIPTION_LENGTH = 400;
+
+/**
+ * Condense a product description for tasting cards if it exceeds max length.
+ * Uses LLM to intelligently summarize while preserving key details.
+ */
+export async function condenseTastingCardDescription({ title, description }) {
+  // If description already fits, return as-is
+  if (!description || description.length <= MAX_DESCRIPTION_LENGTH) {
+    return description || "";
+  }
+
+  console.log("AI: Condensing description from", description.length, "chars to max", MAX_DESCRIPTION_LENGTH);
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0.3,
+    messages: [
+      {
+        role: "system",
+        content: `Condense this whiskey description to max ${MAX_DESCRIPTION_LENGTH} characters.
+Keep: production details, origin story, what makes it unique.
+Remove: generic marketing phrases, redundant tasting note references.
+Maintain the brand's voice. Output a single paragraph.`
+      },
+      {
+        role: "user",
+        content: `Title: ${title}\n\nCondense this:\n${description}`
+      }
+    ]
+  });
+
+  const condensed = response.choices[0].message.content.trim();
+  console.log("AI: Condensed to", condensed.length, "chars");
+
+  return condensed;
+}
+
 /**
  * Extract high-signal label facts and flags (ABV/proof, store pick, single barrel).
  * This is intentionally narrow and deterministic vs the full listing generation.

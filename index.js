@@ -1,5 +1,6 @@
-import { Client, GatewayIntentBits } from "discord.js";
+import { Client, GatewayIntentBits, AttachmentBuilder } from "discord.js";
 import { runPipeline } from "./pipeline.js";
+import { generateTastingCard } from "./tasting-card.js";
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
@@ -31,6 +32,45 @@ function makeDiscordSender(channelLike) {
 
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "tastingcard") {
+    await interaction.deferReply();
+
+    const adminUrl = interaction.options.getString("url");
+    const force = interaction.options.getBoolean("force") || false;
+
+    try {
+      await interaction.editReply({ content: "🎴 Generating tasting card..." });
+
+      const result = await generateTastingCard({ adminUrl });
+
+      if (result.success) {
+        // Create attachment from PNG buffer
+        const attachment = new AttachmentBuilder(result.pngBuffer, {
+          name: `tasting-card-${result.productHandle}.png`
+        });
+
+        await interaction.editReply({
+          content: [
+            `✅ Tasting card generated for **${result.productTitle}**`,
+            result.cardImageUrl ? `📎 Uploaded to Shopify Files and attached to product` : "",
+            result.cardImageUrl ? `🔗 ${result.cardImageUrl}` : ""
+          ].filter(Boolean).join("\n"),
+          files: [attachment]
+        });
+      } else {
+        await interaction.editReply({
+          content: `❌ Failed to generate tasting card: ${result.error}`
+        });
+      }
+    } catch (err) {
+      console.error("TASTINGCARD ERROR:", err);
+      await interaction.editReply({
+        content: `❌ Error: ${err.message || String(err)}`
+      });
+    }
+    return;
+  }
 
   if (interaction.commandName === "create-product") {
     await interaction.reply({ content: "🧪 Starting… creating a log thread…", ephemeral: true });

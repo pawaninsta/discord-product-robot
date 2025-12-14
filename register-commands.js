@@ -62,6 +62,21 @@ const commands = [
         .setName("notes")
         .setDescription("Optional notes (store pick, barrel #, etc.)")
         .setRequired(false)
+    ),
+  new SlashCommandBuilder()
+    .setName("tastingcard")
+    .setDescription("Generate a tasting card for an existing Shopify product")
+    .addStringOption(option =>
+      option
+        .setName("url")
+        .setDescription("Shopify admin product URL (e.g., https://admin.shopify.com/store/xxx/products/123)")
+        .setRequired(true)
+    )
+    .addBooleanOption(option =>
+      option
+        .setName("force")
+        .setDescription("Regenerate even if a tasting card already exists")
+        .setRequired(false)
     )
 ].map(command => command.toJSON());
 
