@@ -55,62 +55,164 @@ async function generateWithGeminiImage(imageUrl) {
   const base64Image = Buffer.from(imageBuffer).toString("base64");
   const mimeType = imageResponse.headers.get("content-type") || "image/png";
 
-  const prompt = `Edit this existing product photo.
+  // Gemini responds best when the edit request is explicit and structured.
+  // We embed a JSON "edit spec" to reduce ambiguity and ensure hands/props are removed.
+  function buildEditPrompt({ strict = false } = {}) {
+    const spec = {
+      goal: "studio_packshot",
+      background: { type: "solid", color: "#FFFFFF", seamless: true },
+      subject: {
+        type: "single_bottle",
+        preserve_identity: true,
+        preserve_label_text: true,
+        preserve_colors: true,
+        preserve_geometry: true
+      },
+      remove: [
+        "hands",
+        "fingers",
+        "wrists",
+        "arms",
+        "people",
+        "props",
+        "supports",
+        "stands",
+        "shelves",
+        "price_tags",
+        "stickers_not_part_of_label",
+        "background_objects"
+      ],
+      inpaint: {
+        reconstruct_occluded_bottle_areas: true,
+        match_glass_reflections: true,
+        keep_artifacts_minimal: true
+      },
+      lighting: {
+        style: "soft_even_studio",
+        shadows: "minimal_natural_only",
+        avoid_harsh_cast_shadows: true
+      },
+      composition: {
+        aspect_ratio: "1:1",
+        center_horizontally: true,
+        full_bottle_visible: true,
+        bottle_height_percent: "92-96",
+        margin: "minimal_even_top_bottom",
+        no_cropping_of_bottle: true
+      },
+      prohibit: [
+        "extra_objects",
+        "added_text",
+        "added_logos",
+        "watermarks",
+        "label_changes",
+        "color_shifts",
+        "distortion",
+        "stylization"
+      ],
+      output: { single_image: true }
+    };
 
-GOAL: Standardized studio packshot.
+    return [
+      "You are a professional product-photo retoucher.",
+      "Edit the provided image to match the JSON edit spec exactly.",
+      "Return only the edited image. Do not add any text overlays or borders.",
+      "",
+      "JSON_EDIT_SPEC:",
+      JSON.stringify(spec, null, 2),
+      "",
+      strict
+        ? "CRITICAL: If ANY human hand/fingers/arm is visible, it MUST be completely removed. Reconstruct any hidden parts of the bottle/label/glass realistically so the final image looks like a clean bottle-only studio shot."
+        : "If hands/props are present, remove them cleanly and reconstruct any hidden bottle areas.",
+      "CRITICAL: The final image must look like a clean e-commerce packshot: centered, even studio lighting, everything visible, seamless pure white background (#FFFFFF)."
+    ].join("\n");
+  }
 
-- Replace ONLY the background with pure white (#FFFFFF) seamless studio backdrop.
-- Keep the bottle exactly the same (shape, label, colors, reflections). Do not distort.
-- Keep the full bottle visible (do not crop any part of the bottle).
-- COMPOSITION: Scale and crop the image so the bottle occupies ~92–96% of the image height.
-  - Minimal even margin above the cap and below the base.
-  - Center the bottle horizontally.
-- No extra props, no shadows beyond the bottle’s natural shadow, no text overlays.`;
+  function isLikelyUnchangedOutput({ outBase64, inBase64 }) {
+    if (!outBase64 || !inBase64) return false;
+    if (outBase64 === inBase64) return true;
+    // Heuristic: exact-match prefixes + near-identical length can indicate the model returned the original bytes.
+    const lenDelta = Math.abs(outBase64.length - inBase64.length);
+    const lenRatio = inBase64.length ? lenDelta / inBase64.length : 1;
+    if (lenRatio < 0.01) {
+      const prefixLen = 1024;
+      if (outBase64.slice(0, prefixLen) === inBase64.slice(0, prefixLen)) return true;
+    }
+    return false;
+  }
 
   try {
     const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${modelName}:generateContent`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: prompt },
-            { inlineData: { mimeType, data: base64Image } }
-          ]
-        }],
-        generationConfig: {
-          temperature: 0.4,
-          // Image models use imageConfig; keep it minimal for compatibility.
-          imageConfig: { aspectRatio: "1:1" }
-        }
-      })
-    });
+    async function callGemini({ promptText }) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: promptText },
+              { inlineData: { mimeType, data: base64Image } }
+            ]
+          }],
+          generationConfig: {
+            // Lower temperature for more consistent, constraint-following edits.
+            temperature: 0.2,
+            // Image models use imageConfig; keep it minimal for compatibility.
+            imageConfig: { aspectRatio: "1:1" }
+          }
+        })
+      });
 
-    const json = await res.json().catch(() => null);
+      const json = await res.json().catch(() => null);
 
-    // #region agent log
-    (()=>{const cand=json?.candidates?.[0];const parts=Array.isArray(cand?.content?.parts)?cand.content.parts:[];const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'image.js:76',message:'Gemini image response candidate shape',data:{httpStatus:res.status,ok:res.ok,hasCandidates:Boolean(json?.candidates?.length),partsCount:parts.length,hasInlineData:parts.some(p=>Boolean(p?.inlineData?.data))},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
-    // #endregion
+      // #region agent log
+      (()=>{const cand=json?.candidates?.[0];const parts=Array.isArray(cand?.content?.parts)?cand.content.parts:[];const payload={sessionId:'debug-session',runId:'post-fix',hypothesisId:'H3',location:'image.js:callGemini',message:'Gemini image response candidate shape',data:{httpStatus:res.status,ok:res.ok,hasCandidates:Boolean(json?.candidates?.length),partsCount:parts.length,hasInlineData:parts.some(p=>Boolean(p?.inlineData?.data))},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
+      // #endregion
 
-    if (!res.ok) {
-      const msg = json?.error?.message || JSON.stringify(json)?.slice(0, 300) || `HTTP ${res.status}`;
-      throw new Error(`Gemini image API error (${res.status}): ${msg}`);
-    }
-
-    const candidate = json?.candidates?.[0];
-    const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
-    for (const part of parts) {
-      if (part?.inlineData?.data) {
-        const outMime = part.inlineData.mimeType || "image/png";
-        return `data:${outMime};base64,${part.inlineData.data}`;
+      if (!res.ok) {
+        const msg = json?.error?.message || JSON.stringify(json)?.slice(0, 300) || `HTTP ${res.status}`;
+        throw new Error(`Gemini image API error (${res.status}): ${msg}`);
       }
+
+      const candidate = json?.candidates?.[0];
+      const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+      for (const part of parts) {
+        if (part?.inlineData?.data) {
+          const outMime = part.inlineData.mimeType || "image/png";
+          const outBase64 = part.inlineData.data;
+          return { outMime, outBase64 };
+        }
+      }
+
+      return null;
     }
 
-    console.log("IMAGE: Response did not contain image data");
+    // Attempt 1: JSON spec
+    const attempt1 = await callGemini({ promptText: buildEditPrompt({ strict: false }) });
+    if (attempt1?.outBase64) {
+      const unchanged = isLikelyUnchangedOutput({ outBase64: attempt1.outBase64, inBase64: base64Image });
+      if (!unchanged) {
+        return `data:${attempt1.outMime};base64,${attempt1.outBase64}`;
+      }
+      console.warn("IMAGE: Gemini output looks unchanged; retrying with stricter hand/prop removal prompt");
+    } else {
+      console.warn("IMAGE: Gemini did not return image data; retrying once");
+    }
+
+    // Attempt 2: stricter instruction (hand/prop removal + reconstruction)
+    const attempt2 = await callGemini({ promptText: buildEditPrompt({ strict: true }) });
+    if (attempt2?.outBase64) {
+      const unchanged = isLikelyUnchangedOutput({ outBase64: attempt2.outBase64, inBase64: base64Image });
+      if (!unchanged) {
+        return `data:${attempt2.outMime};base64,${attempt2.outBase64}`;
+      }
+      console.warn("IMAGE: Gemini output still looks unchanged after retry");
+    }
+
+    console.log("IMAGE: Response did not contain usable image data");
     return null;
   } catch (err) {
     console.error("IMAGE: Gemini API error:", err.message);
