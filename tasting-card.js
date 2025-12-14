@@ -196,7 +196,7 @@ async function prepareProductData(product) {
 async function generateQRCode(handle) {
   const productUrl = `https://whiskeylibrary.com/products/${handle}`;
   return await QRCode.toDataURL(productUrl, {
-    width: 180,
+    width: 220,
     margin: 1,
     color: {
       dark: "#1a1a1a",
@@ -206,21 +206,81 @@ async function generateQRCode(handle) {
 }
 
 /**
+ * Check if a value should be hidden (empty, dash, or NAS for age)
+ */
+function shouldHideValue(value, fieldName) {
+  if (!value || value === "—" || value === "-") return true;
+  if (fieldName === "age" && (value === "NAS" || value.toLowerCase() === "nas")) return true;
+  return false;
+}
+
+/**
+ * Build dynamic spec rows, hiding empty fields
+ */
+function buildSpecsRows(productData) {
+  const rows = [];
+  
+  // Location row (always show if we have location)
+  if (!shouldHideValue(productData.location, "location")) {
+    rows.push(`
+        <div class="spec-row">
+          <img class="flag-img" src="${productData.countryFlagUrl}" alt="Flag" />
+          <span class="value">${escapeHtml(productData.location)}</span>
+        </div>`);
+  }
+  
+  // Type row
+  if (!shouldHideValue(productData.subType, "type")) {
+    rows.push(`
+        <div class="spec-row">
+          <span class="label">TYPE</span>
+          <span class="value">${escapeHtml(productData.subType)}</span>
+        </div>`);
+  }
+  
+  // Age row (hide if NAS or empty)
+  if (!shouldHideValue(productData.ageStatement, "age")) {
+    rows.push(`
+        <div class="spec-row">
+          <span class="label">AGE</span>
+          <span class="value">${escapeHtml(productData.ageStatement)}</span>
+        </div>`);
+  }
+  
+  // ABV row
+  if (!shouldHideValue(productData.abvDisplay, "abv")) {
+    rows.push(`
+        <div class="spec-row">
+          <span class="label">ABV</span>
+          <span class="value">${escapeHtml(productData.abvDisplay)}</span>
+        </div>`);
+  }
+  
+  // Price row
+  if (!shouldHideValue(productData.price, "price")) {
+    rows.push(`
+        <div class="spec-row">
+          <span class="label">$$</span>
+          <span class="value">${productData.price}</span>
+        </div>`);
+  }
+  
+  return rows.join("");
+}
+
+/**
  * Build HTML from template with token replacements
  */
 function buildCardHtml(productData, qrDataUrl) {
   let html = TEMPLATE_HTML;
   
+  // Build dynamic specs rows (hiding empty fields)
+  const specsRows = buildSpecsRows(productData);
+  
   const replacements = {
     "{{TITLE}}": escapeHtml(productData.title),
     "{{IMAGE_URL}}": productData.imageUrl || "",
-    "{{COUNTRY_FLAG_URL}}": productData.countryFlagUrl,
-    "{{COUNTRY}}": escapeHtml(productData.country),
-    "{{LOCATION}}": escapeHtml(productData.location),
-    "{{SUB_TYPE}}": escapeHtml(productData.subType),
-    "{{AGE_STATEMENT}}": escapeHtml(productData.ageStatement),
-    "{{ABV_DISPLAY}}": escapeHtml(productData.abvDisplay),
-    "{{PRICE}}": productData.price,
+    "{{SPECS_ROWS}}": specsRows,
     "{{DESCRIPTION}}": escapeHtml(productData.description),
     "{{NOSE}}": escapeHtml(productData.nose),
     "{{PALATE}}": escapeHtml(productData.palate),

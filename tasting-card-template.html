@@ -41,7 +41,7 @@
       flex-direction: column;
     }
 
-    /* Title - full width, no cutoff */
+    /* Title - max 2 lines with ellipsis overflow */
     .title {
       font-family: var(--font-title);
       font-size: 46px;
@@ -53,6 +53,11 @@
       word-wrap: break-word;
       overflow-wrap: break-word;
       hyphens: auto;
+      max-height: 115px;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
     }
 
     /* Hero section - image (40%) + specs (60%) */
@@ -97,10 +102,12 @@
     }
 
     .spec-row .flag-img {
+      min-width: 90px; /* Same as .label min-width for alignment */
       width: 48px;
       height: 32px;
       margin-right: 16px;
       object-fit: contain;
+      object-position: left center;
       border-radius: 2px;
     }
 
@@ -156,6 +163,12 @@
       text-align: center;
     }
 
+    /* Vertical dividers between tasting columns */
+    .tasting-col:not(:last-child) {
+      border-right: 2px solid var(--color-divider);
+      padding-right: 25px;
+    }
+
     .tasting-col h3 {
       font-family: var(--font-body);
       font-size: 18px;
@@ -170,13 +183,13 @@
     }
 
     .tasting-col p {
-      font-size: 20px;
+      font-size: 24px;
       line-height: 1.45;
       color: var(--color-text-light);
-      max-height: 120px;
+      max-height: 150px;
       overflow: hidden;
       display: -webkit-box;
-      -webkit-line-clamp: 4;
+      -webkit-line-clamp: 5;
       -webkit-box-orient: vertical;
     }
 
@@ -191,6 +204,7 @@
 
     .cta {
       flex: 1;
+      text-align: center;
     }
 
     .cta h3 {
@@ -208,8 +222,8 @@
     }
 
     .qr {
-      width: 180px;
-      height: 180px;
+      width: 220px;
+      height: 220px;
       flex-shrink: 0;
     }
 
@@ -230,26 +244,7 @@
         <img class="bottle-image" src="{{IMAGE_URL}}" alt="{{TITLE}}" />
       </div>
       <div class="specs">
-        <div class="spec-row">
-          <img class="flag-img" src="{{COUNTRY_FLAG_URL}}" alt="Flag" />
-          <span class="value">{{LOCATION}}</span>
-        </div>
-        <div class="spec-row">
-          <span class="label">TYPE</span>
-          <span class="value">{{SUB_TYPE}}</span>
-        </div>
-        <div class="spec-row">
-          <span class="label">AGE</span>
-          <span class="value">{{AGE_STATEMENT}}</span>
-        </div>
-        <div class="spec-row">
-          <span class="label">ABV</span>
-          <span class="value">{{ABV_DISPLAY}}</span>
-        </div>
-        <div class="spec-row">
-          <span class="label">$$</span>
-          <span class="value">{{PRICE}}</span>
-        </div>
+        {{SPECS_ROWS}}
       </div>
     </section>
 

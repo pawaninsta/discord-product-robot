@@ -26,9 +26,10 @@ const TEMPLATE_HTML = readFileSync(TEMPLATE_PATH, "utf-8");
 const SAMPLE_DATA = {
   title: "Smoke Wagon Straight Bourbon Whiskey 750ml",
   imageUrl: "https://cdn.shopify.com/s/files/1/0740/7261/6785/files/smoke-wagon-straight-bourbon.png?v=1699574400",
-  countryFlag: "🇺🇸",
+  countryFlagUrl: "https://flagcdn.com/w80/us.png",
   location: "Nevada, USA",
-  ageStatement: "NAS",
+  subType: "Straight Bourbon",
+  ageStatement: "NAS",  // Will be hidden since it's NAS
   abvDisplay: "46.25% (≈93 proof)",
   price: "$34.99",
   description: "Smoke Wagon Straight Bourbon is crafted by Aaron Chepenik at the Nevada H&C Distilling Co. in Las Vegas. This small-batch bourbon uses a high-rye mashbill sourced from MGP in Indiana, aged in new charred American oak barrels. The result is a bold, spicy bourbon with exceptional depth that punches well above its price point.",
@@ -42,16 +43,16 @@ const SAMPLE_DATA = {
  * Generate a simple placeholder QR code (gray square with text)
  */
 function generatePlaceholderQR() {
-  // Create a simple SVG placeholder for the QR code
+  // Create a simple SVG placeholder for the QR code (220x220 to match new size)
   const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180">
-      <rect width="180" height="180" fill="#f0f0f0" rx="8"/>
-      <rect x="20" y="20" width="140" height="140" fill="#1a1a1a" rx="4"/>
-      <rect x="30" y="30" width="40" height="40" fill="#ffffff"/>
-      <rect x="110" y="30" width="40" height="40" fill="#ffffff"/>
-      <rect x="30" y="110" width="40" height="40" fill="#ffffff"/>
-      <rect x="80" y="80" width="20" height="20" fill="#ffffff"/>
-      <text x="90" y="175" text-anchor="middle" font-family="Inter, sans-serif" font-size="10" fill="#666">whiskeylibrary.com</text>
+    <svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 220 220">
+      <rect width="220" height="220" fill="#f0f0f0" rx="8"/>
+      <rect x="25" y="25" width="170" height="170" fill="#1a1a1a" rx="4"/>
+      <rect x="40" y="40" width="50" height="50" fill="#ffffff"/>
+      <rect x="130" y="40" width="50" height="50" fill="#ffffff"/>
+      <rect x="40" y="130" width="50" height="50" fill="#ffffff"/>
+      <rect x="95" y="95" width="30" height="30" fill="#ffffff"/>
+      <text x="110" y="210" text-anchor="middle" font-family="Inter, sans-serif" font-size="11" fill="#666">whiskeylibrary.com</text>
     </svg>
   `;
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
@@ -70,19 +71,81 @@ function escapeHtml(str) {
 }
 
 /**
+ * Check if a value should be hidden (empty, dash, or NAS for age)
+ */
+function shouldHideValue(value, fieldName) {
+  if (!value || value === "—" || value === "-") return true;
+  if (fieldName === "age" && (value === "NAS" || value.toLowerCase() === "nas")) return true;
+  return false;
+}
+
+/**
+ * Build dynamic spec rows, hiding empty fields
+ */
+function buildSpecsRows(data) {
+  const rows = [];
+  
+  // Location row
+  if (!shouldHideValue(data.location, "location")) {
+    rows.push(`
+        <div class="spec-row">
+          <img class="flag-img" src="${data.countryFlagUrl}" alt="Flag" />
+          <span class="value">${escapeHtml(data.location)}</span>
+        </div>`);
+  }
+  
+  // Type row
+  if (!shouldHideValue(data.subType, "type")) {
+    rows.push(`
+        <div class="spec-row">
+          <span class="label">TYPE</span>
+          <span class="value">${escapeHtml(data.subType)}</span>
+        </div>`);
+  }
+  
+  // Age row (hide if NAS or empty)
+  if (!shouldHideValue(data.ageStatement, "age")) {
+    rows.push(`
+        <div class="spec-row">
+          <span class="label">AGE</span>
+          <span class="value">${escapeHtml(data.ageStatement)}</span>
+        </div>`);
+  }
+  
+  // ABV row
+  if (!shouldHideValue(data.abvDisplay, "abv")) {
+    rows.push(`
+        <div class="spec-row">
+          <span class="label">ABV</span>
+          <span class="value">${escapeHtml(data.abvDisplay)}</span>
+        </div>`);
+  }
+  
+  // Price row
+  if (!shouldHideValue(data.price, "price")) {
+    rows.push(`
+        <div class="spec-row">
+          <span class="label">$$</span>
+          <span class="value">${data.price}</span>
+        </div>`);
+  }
+  
+  return rows.join("");
+}
+
+/**
  * Build HTML from template with sample data
  */
 function buildPreviewHtml(data) {
   let html = TEMPLATE_HTML;
   
+  // Build dynamic specs rows (hiding empty fields)
+  const specsRows = buildSpecsRows(data);
+  
   const replacements = {
     "{{TITLE}}": escapeHtml(data.title),
     "{{IMAGE_URL}}": data.imageUrl || "https://via.placeholder.com/380x450/f8f8f8/999999?text=Bottle+Image",
-    "{{COUNTRY_FLAG}}": data.countryFlag,
-    "{{LOCATION}}": escapeHtml(data.location),
-    "{{AGE_STATEMENT}}": escapeHtml(data.ageStatement),
-    "{{ABV_DISPLAY}}": escapeHtml(data.abvDisplay),
-    "{{PRICE}}": data.price,
+    "{{SPECS_ROWS}}": specsRows,
     "{{DESCRIPTION}}": escapeHtml(data.description),
     "{{NOSE}}": escapeHtml(data.nose),
     "{{PALATE}}": escapeHtml(data.palate),
@@ -178,8 +241,9 @@ async function main() {
   console.log("Sample data used:");
   console.log("─".repeat(50));
   console.log(`  Title:    ${SAMPLE_DATA.title}`);
-  console.log(`  Location: ${SAMPLE_DATA.countryFlag} ${SAMPLE_DATA.location}`);
-  console.log(`  Age:      ${SAMPLE_DATA.ageStatement}`);
+  console.log(`  Location: ${SAMPLE_DATA.location}`);
+  console.log(`  Type:     ${SAMPLE_DATA.subType}`);
+  console.log(`  Age:      ${SAMPLE_DATA.ageStatement} (hidden if NAS)`);
   console.log(`  ABV:      ${SAMPLE_DATA.abvDisplay}`);
   console.log(`  Price:    ${SAMPLE_DATA.price}`);
   console.log(`  Nose:     ${SAMPLE_DATA.nose.slice(0, 40)}...`);
