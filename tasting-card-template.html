@@ -44,32 +44,29 @@
     /* Title */
     .title {
       font-family: var(--font-title);
-      font-size: 52px;
+      font-size: 48px;
       font-weight: 700;
-      line-height: 1.15;
+      line-height: 1.2;
       text-align: center;
       margin-bottom: 30px;
       color: var(--color-text);
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-      max-height: 120px;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      hyphens: auto;
     }
 
     /* Hero section - image + specs */
     .hero {
       display: flex;
       gap: 40px;
-      margin-bottom: 40px;
+      margin-bottom: 30px;
     }
 
     .bottle-image {
-      width: 50%;
-      max-width: 580px;
-      height: 600px;
+      width: 510px;
+      height: 500px;
       object-fit: contain;
-      background: transparent;
+      background: #f8f8f8;
       border-radius: 8px;
       flex-shrink: 0;
     }
@@ -79,7 +76,7 @@
       display: flex;
       flex-direction: column;
       justify-content: center;
-      gap: 20px;
+      gap: 16px;
     }
 
     .spec-row {
@@ -94,37 +91,37 @@
     }
 
     .spec-row .flag {
-      font-size: 52px;
-      line-height: 1;
-      min-width: 110px;
+      width: 48px;
+      height: 36px;
+      margin-right: 16px;
+      object-fit: contain;
     }
 
     .spec-row .label {
-      font-size: 30px;
+      font-size: 22px;
       font-weight: 600;
       color: var(--color-accent);
-      min-width: 110px;
+      min-width: 100px;
       text-transform: uppercase;
       letter-spacing: 1px;
     }
 
     .spec-row .value {
-      font-size: 38px;
+      font-size: 28px;
       font-weight: 500;
       color: var(--color-text);
     }
 
     /* Description */
     .description {
-      margin-bottom: 35px;
+      margin-bottom: 28px;
     }
 
     .description p {
-      font-size: 26px;
-      line-height: 1.55;
+      font-size: 24px;
+      line-height: 1.5;
       color: var(--color-text-light);
-      text-align: center;
-      max-height: 200px;
+      max-height: 180px;
       overflow: hidden;
       display: -webkit-box;
       -webkit-line-clamp: 5;
@@ -135,46 +132,39 @@
     .divider {
       border: none;
       border-top: 3px dotted var(--color-divider);
-      margin: 25px 0;
+      margin: 20px 0;
     }
 
     /* Tasting notes */
     .tasting {
       display: flex;
-      gap: 40px;
-      margin-bottom: 30px;
+      gap: 30px;
+      margin-bottom: 20px;
     }
 
     .tasting-col {
       flex: 1;
       text-align: center;
-      border-left: 2px solid var(--color-divider);
-      padding-left: 40px;
-    }
-
-    .tasting-col:first-child {
-      border-left: none;
-      padding-left: 0;
     }
 
     .tasting-col h3 {
       font-family: var(--font-body);
-      font-size: 22px;
+      font-size: 20px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 2px;
       color: var(--color-accent);
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       border-bottom: 2px solid var(--color-accent);
       padding-bottom: 8px;
       display: inline-block;
     }
 
     .tasting-col p {
-      font-size: 24px;
+      font-size: 22px;
       line-height: 1.5;
       color: var(--color-text-light);
-      max-height: 160px;
+      max-height: 135px;
       overflow: hidden;
       display: -webkit-box;
       -webkit-line-clamp: 4;
@@ -185,35 +175,32 @@
     footer {
       margin-top: auto;
       display: flex;
-      flex-direction: row;
       align-items: center;
-      justify-content: space-between;
-      gap: 40px;
-      padding-top: 30px;
+      gap: 30px;
+      padding-top: 20px;
     }
 
     .cta {
       flex: 1;
-      text-align: center;
     }
 
     .cta h3 {
       font-family: var(--font-title);
-      font-size: 38px;
+      font-size: 32px;
       font-weight: 600;
       color: var(--color-accent);
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
     .cta p {
-      font-size: 26px;
+      font-size: 22px;
       line-height: 1.4;
       color: var(--color-text-light);
     }
 
     .qr {
-      width: 280px;
-      height: 280px;
+      width: 180px;
+      height: 180px;
       flex-shrink: 0;
     }
 

@@ -17,22 +17,22 @@ const TEMPLATE_HTML = readFileSync(TEMPLATE_PATH, "utf-8");
 const CARD_WIDTH = 1275;  // 4.25" x 300
 const CARD_HEIGHT = 1650; // 5.5" x 300
 
-// Country to flag emoji mapping
-const COUNTRY_FLAGS = {
-  "USA": "🇺🇸",
-  "Scotland": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
-  "Ireland": "🇮🇪",
-  "Japan": "🇯🇵",
-  "Canada": "🇨🇦",
-  "Taiwan": "🇹🇼",
-  "India": "🇮🇳",
-  "England": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
-  "Wales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿",
-  "France": "🇫🇷",
-  "Mexico": "🇲🇽",
-  "Australia": "🇦🇺",
-  "Caribbean": "🏝️",
-  "Other": "🌍"
+// Country to flag SVG URL mapping (using flagcdn.com for reliable rendering)
+const COUNTRY_FLAG_URLS = {
+  "USA": "https://flagcdn.com/w80/us.png",
+  "Scotland": "https://flagcdn.com/w80/gb-sct.png",
+  "Ireland": "https://flagcdn.com/w80/ie.png",
+  "Japan": "https://flagcdn.com/w80/jp.png",
+  "Canada": "https://flagcdn.com/w80/ca.png",
+  "Taiwan": "https://flagcdn.com/w80/tw.png",
+  "India": "https://flagcdn.com/w80/in.png",
+  "England": "https://flagcdn.com/w80/gb-eng.png",
+  "Wales": "https://flagcdn.com/w80/gb-wls.png",
+  "France": "https://flagcdn.com/w80/fr.png",
+  "Mexico": "https://flagcdn.com/w80/mx.png",
+  "Australia": "https://flagcdn.com/w80/au.png",
+  "Caribbean": "https://flagcdn.com/w80/jm.png",
+  "Other": "https://flagcdn.com/w80/un.png"
 };
 
 /**
@@ -80,10 +80,10 @@ function escapeHtml(str) {
 }
 
 /**
- * Get country flag emoji
+ * Get country flag image URL
  */
-function getCountryFlag(country) {
-  return COUNTRY_FLAGS[country] || COUNTRY_FLAGS["Other"];
+function getCountryFlagUrl(country) {
+  return COUNTRY_FLAG_URLS[country] || COUNTRY_FLAG_URLS["Other"];
 }
 
 /**
@@ -155,6 +155,7 @@ async function prepareProductData(product) {
   const state = mf["custom.state"] || "";
   const ageStatement = mf["custom.age_statement"] || "NAS";
   const abv = mf["custom.alcohol_by_volume"] || "";
+  const subType = mf["custom.sub_type"] || "";
   const nose = mf["custom.nose"] || "";
   const palate = mf["custom.palate"] || "";
   const finish = mf["custom.finish"] || "";
@@ -174,7 +175,8 @@ async function prepareProductData(product) {
     country,
     state,
     location: buildLocation(country, state),
-    countryFlag: getCountryFlag(country),
+    countryFlagUrl: getCountryFlagUrl(country),
+    subType: subType || "—",
     ageStatement: ageStatement || "NAS",
     abv: abvParsed.abv,
     proof: abvParsed.proof,
@@ -212,8 +214,10 @@ function buildCardHtml(productData, qrDataUrl) {
   const replacements = {
     "{{TITLE}}": escapeHtml(productData.title),
     "{{IMAGE_URL}}": productData.imageUrl || "",
-    "{{COUNTRY_FLAG}}": productData.countryFlag,
+    "{{COUNTRY_FLAG_URL}}": productData.countryFlagUrl,
+    "{{COUNTRY}}": escapeHtml(productData.country),
     "{{LOCATION}}": escapeHtml(productData.location),
+    "{{SUB_TYPE}}": escapeHtml(productData.subType),
     "{{AGE_STATEMENT}}": escapeHtml(productData.ageStatement),
     "{{ABV_DISPLAY}}": escapeHtml(productData.abvDisplay),
     "{{PRICE}}": productData.price,
