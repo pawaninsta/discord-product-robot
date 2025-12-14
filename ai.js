@@ -5,6 +5,70 @@ const openai = new OpenAI({
 });
 
 /**
+ * Condense a product description for use on a tasting card.
+ * Tasting cards have limited space, so we need a short, punchy summary.
+ */
+export async function condenseTastingCardDescription({ title, description }) {
+  if (!description || description.trim().length === 0) {
+    return "";
+  }
+
+  // If already short enough, return as-is
+  if (description.length <= 280) {
+    return description;
+  }
+
+  const systemPrompt = `
+You are a whiskey copywriter condensing product descriptions for tasting cards.
+The tasting card has LIMITED SPACE - you must be concise.
+
+Rules:
+- Maximum 2-3 sentences (under 280 characters ideal)
+- Keep the most compelling hook/unique selling point
+- Mention what makes this bottle special (age, proof, barrel selection, etc.)
+- Remove redundant marketing fluff
+- Maintain the direct, Ogilvy-inspired tone
+- Do NOT include tasting notes (those appear separately on the card)
+
+Return ONLY the condensed description text, no JSON or formatting.
+`;
+
+  const userPrompt = `
+Product: ${title}
+
+Original description:
+${description}
+
+Condense this to 2-3 punchy sentences for a tasting card:
+`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.3,
+      max_tokens: 150,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ]
+    });
+
+    const condensed = response?.choices?.[0]?.message?.content?.trim();
+    
+    if (!condensed) {
+      // Fallback: truncate original
+      return description.slice(0, 277) + "...";
+    }
+
+    return condensed;
+  } catch (err) {
+    console.error("condenseTastingCardDescription error:", err);
+    // Fallback: truncate original
+    return description.slice(0, 277) + "...";
+  }
+}
+
+/**
  * Extract high-signal label facts and flags (ABV/proof, store pick, single barrel).
  * This is intentionally narrow and deterministic vs the full listing generation.
  */
