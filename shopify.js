@@ -1,4 +1,5 @@
 import fetch from "node-fetch";
+import FormData from "form-data";
 
 const SHOP = process.env.SHOPIFY_STORE_DOMAIN;
 const TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
@@ -142,6 +143,18 @@ export async function uploadFileToShopify(pngBuffer, filename = "tasting-card.pn
   if (stagedData.errors || stagedData.data?.stagedUploadsCreate?.userErrors?.length > 0) {
     const errors = stagedData.errors || stagedData.data.stagedUploadsCreate.userErrors;
     console.error("SHOPIFY: Staged upload errors:", errors);
+    
+    // Check for ACCESS_DENIED error and provide helpful guidance
+    const isAccessDenied = stagedData.errors?.some(e => e?.extensions?.code === "ACCESS_DENIED");
+    if (isAccessDenied) {
+      throw new Error(
+        `Staged upload failed: ACCESS_DENIED. ` +
+        `Your Shopify Admin API token is missing the 'write_files' scope. ` +
+        `Go to Shopify Admin → Settings → Apps → Develop apps → Your App → Configuration → Admin API integration, ` +
+        `add 'write_files' and 'read_files' scopes, save, and regenerate the API token.`
+      );
+    }
+    
     throw new Error(`Staged upload failed: ${JSON.stringify(errors)}`);
   }
 
@@ -157,11 +170,15 @@ export async function uploadFileToShopify(pngBuffer, filename = "tasting-card.pn
   for (const param of target.parameters) {
     formData.append(param.name, param.value);
   }
-  formData.append("file", new Blob([pngBuffer], { type: "image/png" }), filename);
+  formData.append("file", pngBuffer, {
+    filename,
+    contentType: "image/png"
+  });
 
   const uploadRes = await fetch(target.url, {
     method: "POST",
-    body: formData
+    body: formData,
+    headers: formData.getHeaders()
   });
 
   if (!uploadRes.ok) {
