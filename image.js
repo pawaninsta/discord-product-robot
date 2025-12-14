@@ -1,4 +1,5 @@
 import fetch from "node-fetch";
+import sharp from "sharp";
 
 /**
  * Generate a studio product shot with white background
@@ -54,6 +55,94 @@ async function generateWithGeminiImage(imageUrl) {
   const imageBuffer = await imageResponse.arrayBuffer();
   const base64Image = Buffer.from(imageBuffer).toString("base64");
   const mimeType = imageResponse.headers.get("content-type") || "image/png";
+
+  async function forcePureWhiteBackgroundDataUrl(dataUrl) {
+    try {
+      const match = /^data:([^;]+);base64,(.*)$/s.exec(String(dataUrl || ""));
+      if (!match) return dataUrl;
+
+      const inBuf = Buffer.from(match[2], "base64");
+      const { data, info } = await sharp(inBuf)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      const { width, height, channels } = info;
+      if (!width || !height || channels < 3) return dataUrl;
+
+      const w = width;
+      const h = height;
+      const visited = new Uint8Array(w * h);
+      const queue = new Uint32Array(w * h);
+      let head = 0;
+      let tail = 0;
+
+      function idxOf(x, y) {
+        return y * w + x;
+      }
+
+      function isNearWhiteAtIndex(idx) {
+        const o = idx * channels;
+        const r = data[o];
+        const g = data[o + 1];
+        const b = data[o + 2];
+        const max = r > g ? (r > b ? r : b) : (g > b ? g : b);
+        const min = r < g ? (r < b ? r : b) : (g < b ? g : b);
+        // Accept slightly-off whites (e.g. light gray) while rejecting saturated areas.
+        // Tune conservatively to avoid eating into the bottle.
+        return max >= 242 && (max - min) <= 18;
+      }
+
+      function pushIfBackground(x, y) {
+        const idx = idxOf(x, y);
+        if (visited[idx]) return;
+        if (!isNearWhiteAtIndex(idx)) return;
+        visited[idx] = 1;
+        queue[tail++] = idx;
+      }
+
+      // Seed from border pixels (background touches edges in a packshot).
+      for (let x = 0; x < w; x++) {
+        pushIfBackground(x, 0);
+        pushIfBackground(x, h - 1);
+      }
+      for (let y = 0; y < h; y++) {
+        pushIfBackground(0, y);
+        pushIfBackground(w - 1, y);
+      }
+
+      // Flood fill 4-neighborhood over near-white pixels connected to border.
+      while (head < tail) {
+        const idx = queue[head++];
+        const y = Math.floor(idx / w);
+        const x = idx - y * w;
+
+        if (x > 0) pushIfBackground(x - 1, y);
+        if (x + 1 < w) pushIfBackground(x + 1, y);
+        if (y > 0) pushIfBackground(x, y - 1);
+        if (y + 1 < h) pushIfBackground(x, y + 1);
+      }
+
+      // Force visited background pixels to pure white.
+      for (let i = 0; i < visited.length; i++) {
+        if (!visited[i]) continue;
+        const o = i * channels;
+        data[o] = 255;
+        data[o + 1] = 255;
+        data[o + 2] = 255;
+        // Preserve alpha channel if present.
+      }
+
+      const outBuf = await sharp(data, { raw: { width: w, height: h, channels } })
+        .png({ compressionLevel: 9, adaptiveFiltering: true })
+        .toBuffer();
+
+      return `data:image/png;base64,${outBuf.toString("base64")}`;
+    } catch (e) {
+      console.warn("IMAGE: Failed to force pure white background:", e?.message || String(e));
+      return dataUrl;
+    }
+  }
 
   // Gemini responds best when the edit request is explicit and structured.
   // We embed a JSON "edit spec" to reduce ambiguity and ensure hands/props are removed.
@@ -124,7 +213,8 @@ async function generateWithGeminiImage(imageUrl) {
       strict
         ? "CRITICAL: If ANY human hand/fingers/arm is visible, it MUST be completely removed. Reconstruct any hidden parts of the bottle/label/glass realistically so the final image looks like a clean bottle-only studio shot."
         : "If hands/props are present, remove them cleanly and reconstruct any hidden bottle areas.",
-      "CRITICAL: The final image must look like a clean e-commerce packshot: centered, even studio lighting, everything visible, seamless pure white background (#FFFFFF)."
+      "CRITICAL: Background must be PERFECT pure white (#FFFFFF) with NO gradient and NO off-white tint.",
+      "CRITICAL: The final image must look like a clean e-commerce packshot: centered, even studio lighting, everything visible."
     ].join("\n");
   }
 
@@ -195,7 +285,8 @@ async function generateWithGeminiImage(imageUrl) {
     if (attempt1?.outBase64) {
       const unchanged = isLikelyUnchangedOutput({ outBase64: attempt1.outBase64, inBase64: base64Image });
       if (!unchanged) {
-        return `data:${attempt1.outMime};base64,${attempt1.outBase64}`;
+        const dataUrl = `data:${attempt1.outMime};base64,${attempt1.outBase64}`;
+        return await forcePureWhiteBackgroundDataUrl(dataUrl);
       }
       console.warn("IMAGE: Gemini output looks unchanged; retrying with stricter hand/prop removal prompt");
     } else {
@@ -207,7 +298,8 @@ async function generateWithGeminiImage(imageUrl) {
     if (attempt2?.outBase64) {
       const unchanged = isLikelyUnchangedOutput({ outBase64: attempt2.outBase64, inBase64: base64Image });
       if (!unchanged) {
-        return `data:${attempt2.outMime};base64,${attempt2.outBase64}`;
+        const dataUrl = `data:${attempt2.outMime};base64,${attempt2.outBase64}`;
+        return await forcePureWhiteBackgroundDataUrl(dataUrl);
       }
       console.warn("IMAGE: Gemini output still looks unchanged after retry");
     }
