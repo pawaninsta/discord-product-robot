@@ -171,12 +171,19 @@ export async function uploadFileToShopify(pngBuffer, filename = "tasting-card.pn
   for (const param of target.parameters) {
     formData.append(param.name, param.value);
   }
-  // Convert Buffer to Readable stream for form-data library compatibility
-  const bufferStream = Readable.from(pngBuffer);
+// #region agent log
+  fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'shopify.js:uploadFileToShopify:step2',message:'Buffer type check before FormData append',data:{isBuffer:Buffer.isBuffer(pngBuffer),constructorName:pngBuffer?.constructor?.name,byteLength:pngBuffer?.length||pngBuffer?.byteLength||null,firstByte:pngBuffer?.[0]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H2'})}).catch(()=>{});
+  // #endregion
+
+  // CRITICAL FIX: form-data requires a stream, not raw buffer.
+  // Readable.from(buffer) iterates over bytes as numbers, so we must wrap in array.
+  // Also ensure we have a proper Node.js Buffer, not Uint8Array.
+  const safeBuffer = Buffer.isBuffer(pngBuffer) ? pngBuffer : Buffer.from(pngBuffer);
+  const bufferStream = Readable.from([safeBuffer]);
   formData.append("file", bufferStream, {
     filename,
     contentType: "image/png",
-    knownLength: pngBuffer.length
+    knownLength: safeBuffer.length
   });
 
   const uploadRes = await fetch(target.url, {
