@@ -4,49 +4,55 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+// Character limits for tasting card sections
+const DESCRIPTION_LIMITS = { min: 300, max: 550 };
+const TASTING_NOTE_LIMITS = { min: 50, max: 150 };
+
 /**
  * Condense a product description for use on a tasting card.
- * Tasting cards have limited space, so we need a short, punchy summary.
+ * Only condenses if text exceeds max limit. Targets max to fill available space.
  */
 export async function condenseTastingCardDescription({ title, description }) {
   if (!description || description.trim().length === 0) {
     return "";
   }
 
-  // If already short enough, return as-is
-  if (description.length <= 400) {
+  // If already fits within max, return as-is (no API call needed)
+  if (description.length <= DESCRIPTION_LIMITS.max) {
     return description;
   }
 
-  const systemPrompt = `
+  const systemPrompt = \`
 You are a whiskey copywriter condensing product descriptions for tasting cards.
-The tasting card has LIMITED SPACE - you must be concise.
+The tasting card has space for approximately \${DESCRIPTION_LIMITS.max} characters.
 
 Rules:
-- Maximum 3-4 sentences (under 400 characters ideal)
+- Target exactly \${DESCRIPTION_LIMITS.max} characters (use the full space available)
+- Keep 4-5 sentences that tell the complete story
 - Keep the most compelling hook/unique selling point
 - Mention what makes this bottle special (age, proof, barrel selection, etc.)
 - Remove redundant marketing fluff
 - Maintain the direct, Ogilvy-inspired tone
 - Do NOT include tasting notes (those appear separately on the card)
+- IMPORTANT: Do not over-condense. Fill the available space.
 
 Return ONLY the condensed description text, no JSON or formatting.
-`;
+\`;
 
-  const userPrompt = `
-Product: ${title}
+  const userPrompt = \`
+Product: \${title}
 
 Original description:
-${description}
+\${description}
 
-Condense this to 2-3 punchy sentences for a tasting card:
-`;
+Condense this to approximately \${DESCRIPTION_LIMITS.max} characters (4-5 sentences) for a tasting card:
+\`;
 
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.3,
-      max_tokens: 150,
+      max_tokens: 250,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
@@ -57,14 +63,84 @@ Condense this to 2-3 punchy sentences for a tasting card:
     
     if (!condensed) {
       // Fallback: truncate original
-      return description.slice(0, 397) + "...";
+      return description.slice(0, DESCRIPTION_LIMITS.max - 3) + "...";
+    }
+
+    // Safety: if AI over-condensed below minimum, use truncation instead
+    if (condensed.length < DESCRIPTION_LIMITS.min) {
+      return description.slice(0, DESCRIPTION_LIMITS.max - 3) + "...";
     }
 
     return condensed;
   } catch (err) {
     console.error("condenseTastingCardDescription error:", err);
     // Fallback: truncate original
-    return description.slice(0, 277) + "...";
+    return description.slice(0, DESCRIPTION_LIMITS.max - 3) + "...";
+  }
+}
+
+/**
+ * Condense a tasting note (nose/palate/finish) for use on a tasting card.
+ * Only condenses if text exceeds max limit. Targets max to fill available space.
+ */
+export async function condenseTastingNote({ noteType, noteText }) {
+  if (!noteText || noteText.trim().length === 0) {
+    return "";
+  }
+
+  // If already fits within max, return as-is (no API call needed)
+  if (noteText.length <= TASTING_NOTE_LIMITS.max) {
+    return noteText;
+  }
+
+  const systemPrompt = \`
+You are condensing tasting notes for a whiskey tasting card.
+The card has space for approximately \${TASTING_NOTE_LIMITS.max} characters per tasting note.
+
+Rules:
+- Target exactly \${TASTING_NOTE_LIMITS.max} characters (use the full space available)
+- Keep the most distinctive and evocative flavor descriptors
+- Maintain descriptive prose style (not just a list)
+- IMPORTANT: Do not over-condense. Fill the available space.
+
+Return ONLY the condensed tasting note text, no labels or formatting.
+\`;
+
+  const userPrompt = \`
+\${noteType.toUpperCase()} note to condense:
+\${noteText}
+
+Condense to approximately \${TASTING_NOTE_LIMITS.max} characters:
+\`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.3,
+      max_tokens: 80,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ]
+    });
+
+    const condensed = response?.choices?.[0]?.message?.content?.trim();
+    
+    if (!condensed) {
+      // Fallback: truncate original
+      return noteText.slice(0, TASTING_NOTE_LIMITS.max - 3) + "...";
+    }
+
+    // Safety: if AI over-condensed below minimum, use truncation instead
+    if (condensed.length < TASTING_NOTE_LIMITS.min) {
+      return noteText.slice(0, TASTING_NOTE_LIMITS.max - 3) + "...";
+    }
+
+    return condensed;
+  } catch (err) {
+    console.error("condenseTastingNote error:", err);
+    // Fallback: truncate original
+    return noteText.slice(0, TASTING_NOTE_LIMITS.max - 3) + "...";
   }
 }
 
