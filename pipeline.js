@@ -4,6 +4,7 @@ import { createDraftProduct } from "./shopify.js";
 import { searchWhiskeyInfo, searchTastingNotes } from "./search.js";
 import { extractLabelSignals, identifyBottleForSearch } from "./ai.js";
 import { buildTastingPriors } from "./tasting-priors.js";
+import { generateTastingCardAsync } from "./tasting-card.js";
 import fetch from "node-fetch";
 
 /**
@@ -265,6 +266,12 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
     if (needsAbv) {
       await sendSafe("⚠️ ABV/proof wasn’t found on the label with confidence, so I left **Alcohol by Volume** blank. Please fill it in manually or re-run with the **abv**/**proof** command options.");
     }
+
+    // Trigger tasting card generation concurrently (non-blocking)
+    generateTastingCardAsync(product.id, sendSafe).catch(err => {
+      console.error("TASTING CARD: Background generation failed:", err.message);
+    });
+
     console.log("PIPELINE SUCCESS:", adminUrl);
 
     return { ok: true, adminUrl, needsAbv, productId: product.id, productTitle };
