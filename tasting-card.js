@@ -4,7 +4,11 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { getProductById, uploadFileToShopify, setProductMetafield } from "./shopify.js";
-import { condenseTastingCardDescription } from "./ai.js";
+import { condenseTastingCardDescription, condenseTastingNote } from "./ai.js";
+
+// Content limits for tasting card layout
+const TITLE_MAX_CHARS = 75;  // ~2 lines at 54px font
+const TASTING_NOTE_MAX_CHARS = 120;  // ~4 lines per note
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -145,6 +149,33 @@ function parseMetafieldValue(value) {
 }
 
 /**
+ * Truncate title to fit within 2 lines on the card
+ */
+function truncateTitle(title, maxChars = TITLE_MAX_CHARS) {
+  if (!title || title.length <= maxChars) return title;
+  // Truncate at word boundary
+  const truncated = title.slice(0, maxChars);
+  const lastSpace = truncated.lastIndexOf(" ");
+  if (lastSpace > maxChars * 0.6) {
+    return truncated.slice(0, lastSpace) + "...";
+  }
+  return truncated + "...";
+}
+
+/**
+ * Truncate tasting note to fit within ~4 lines
+ */
+function truncateTastingNote(note, maxChars = TASTING_NOTE_MAX_CHARS) {
+  if (!note || note.length <= maxChars) return note;
+  const truncated = note.slice(0, maxChars);
+  const lastSpace = truncated.lastIndexOf(" ");
+  if (lastSpace > maxChars * 0.6) {
+    return truncated.slice(0, lastSpace);
+  }
+  return truncated;
+}
+
+/**
  * Transform Shopify product data into template-ready format
  */
 async function prepareProductData(product) {
@@ -156,31 +187,49 @@ async function prepareProductData(product) {
   const ageStatement = mf["custom.age_statement"] || "NAS";
   const abv = mf["custom.alcohol_by_volume"] || "";
   const subType = mf["custom.sub_type"] || "";
-  const nose = mf["custom.nose"] || "";
-  const palate = mf["custom.palate"] || "";
-  const finish = mf["custom.finish"] || "";
+  let nose = mf["custom.nose"] || "";
+  let palate = mf["custom.palate"] || "";
+  let finish = mf["custom.finish"] || "";
   
   // Strip HTML from description and optionally condense
   let description = stripHtml(product.descriptionHtml);
   // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tasting-card.js:prepareProductData',message:'BEFORE condenseTastingCardDescription',data:{descriptionLenBefore:description.length,titleLen:product.title.length,title:product.title,noseLen:nose.length,palateLen:palate.length,finishLen:finish.length},hypothesisId:'H1-H3',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+  console.log("TASTING_CARD_DEBUG: BEFORE condense", { titleLen: product.title.length, descLen: description.length, noseLen: nose.length, palateLen: palate.length, finishLen: finish.length });
   // #endregion
+  
   description = await condenseTastingCardDescription({
     title: product.title,
     description
   });
+  
+  // Condense tasting notes to fit within 4 lines each
+  if (nose && nose.length > TASTING_NOTE_MAX_CHARS) {
+    nose = truncateTastingNote(nose);
+    console.log("TASTING_CARD_DEBUG: Truncated nose to", nose.length, "chars");
+  }
+  if (palate && palate.length > TASTING_NOTE_MAX_CHARS) {
+    palate = truncateTastingNote(palate);
+    console.log("TASTING_CARD_DEBUG: Truncated palate to", palate.length, "chars");
+  }
+  if (finish && finish.length > TASTING_NOTE_MAX_CHARS) {
+    finish = truncateTastingNote(finish);
+    console.log("TASTING_CARD_DEBUG: Truncated finish to", finish.length, "chars");
+  }
+  
+  // Truncate title to fit 2 lines
+  const title = truncateTitle(product.title);
+  if (title !== product.title) {
+    console.log("TASTING_CARD_DEBUG: Truncated title from", product.title.length, "to", title.length, "chars");
+  }
+  
   // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tasting-card.js:prepareProductData',message:'AFTER condenseTastingCardDescription',data:{descriptionLenAfter:description.length,descriptionExcerpt:description.slice(0,100)},hypothesisId:'H2',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+  console.log("TASTING_CARD_DEBUG: AFTER condense", { titleLen: title.length, descLen: description.length, noseLen: nose.length, palateLen: palate.length, finishLen: finish.length });
   // #endregion
   
   const abvParsed = parseAbvProof(abv);
   
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tasting-card.js:prepareProductData',message:'Final data lengths',data:{titleLen:product.title.length,descLen:description.length,noseLen:nose.length,palateLen:palate.length,finishLen:finish.length,nose:nose.slice(0,80),palate:palate.slice(0,80),finish:finish.slice(0,80)},hypothesisId:'H1-H4',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-  // #endregion
-  
   return {
-    title: product.title,
+    title,
     imageUrl: product.imageUrl,
     country,
     state,
