@@ -5,6 +5,47 @@ const openai = new OpenAI({
 });
 
 /**
+ * Condense a long description to fit within a character limit.
+ * @param {string} description - The original description
+ * @param {number} maxLength - Maximum character length (default 280)
+ * @returns {Promise<string>} - Condensed description
+ */
+export async function condenseDescription(description, maxLength = 280) {
+  if (!description || description.length <= maxLength) {
+    return description;
+  }
+
+  const resp = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0.3,
+    messages: [
+      {
+        role: "system",
+        content: `You are a concise copywriter. Condense the given product description to under ${maxLength} characters while preserving the key selling points. Keep the same tone and style. Return ONLY the condensed text, nothing else.`
+      },
+      {
+        role: "user",
+        content: description
+      }
+    ]
+  });
+
+  const condensed = resp?.choices?.[0]?.message?.content?.trim() || description;
+  
+  // If still too long, truncate at last complete sentence
+  if (condensed.length > maxLength) {
+    const truncated = condensed.substring(0, maxLength);
+    const lastPeriod = truncated.lastIndexOf(".");
+    if (lastPeriod > maxLength * 0.5) {
+      return truncated.substring(0, lastPeriod + 1);
+    }
+    return truncated.trim() + "...";
+  }
+  
+  return condensed;
+}
+
+/**
  * Extract high-signal label facts and flags (ABV/proof, store pick, single barrel).
  * This is intentionally narrow and deterministic vs the full listing generation.
  */
@@ -224,8 +265,8 @@ Example: "Buffalo Trace Kentucky Straight Bourbon Whiskey 750ml"
 Example: "Blanton's Single Barrel Bourbon 750ml"
 Example: "Elijah Craig Small Batch 12 Year 750ml"
 
-## DESCRIPTION FORMAT - TELL THE UNIQUE STORY (5-6 sentences)
-Your description MUST answer: "What makes THIS bottle special and collectible?"
+## DESCRIPTION FORMAT - TELL THE UNIQUE STORY (3-4 sentences, MAX 280 characters)
+Your description MUST be CONCISE. Keep it under 280 characters. Answer: "What makes THIS bottle special?"
 
 Structure your description:
 1. **The Hook** - What makes THIS SPECIFIC RELEASE unique and sought-after:
@@ -276,26 +317,53 @@ Apply what you know about whiskey to enhance the description:
 - Jimmy Red = heritage corn variety bourbon from High Wire Distilling
 - Blanton's = first commercially sold single barrel bourbon
 
-## TASTING NOTES
-Your tasting notes MUST be specific to this bottle.
+## TASTING NOTES - WRITE RICH, EVOCATIVE PROSE
+Your tasting notes MUST be specific to this bottle and written as RICH, DESCRIPTIVE PROSE - not simple word lists.
+
+**STYLE GUIDE FOR TASTING NOTES:**
+Write each section (nose, palate, finish) as a flowing, evocative sentence that paints a picture. Use:
+- Descriptive modifiers: "sweet oak", "honeyed caramel", "gentle rye spice", "creamy toffee"
+- Connecting phrases: "with hints of", "layered with", "leading to", "underpinned by"
+- Textural descriptors: "creamy", "silky", "velvety", "chewy", "coating"
+- Intensity qualifiers: "subtle", "bold", "delicate", "rich", "deep", "light"
+
+**EXAMPLES OF RICH TASTING NOTES:**
+
+NOSE examples:
+- "Sweet oak with orange zest, caramel, vanilla, cinnamon and toasted nuts"
+- "Honey and vanilla custard, toasted nuts and light oak"
+- "Rich butterscotch and dark cherry, underpinned by charred oak and baking spices"
+- "Bright citrus zest layered with creamy vanilla, brown sugar, and hints of leather"
+
+PALATE examples:
+- "Honeyed caramel and brown sugar, spicy oak, chocolate and leather with hints of dried fruit"
+- "Creamy caramel and toffee, gentle rye spice, apple and pepper"
+- "Full-bodied with dark chocolate and espresso, transitioning to dried fruits and warm baking spices"
+- "Velvety mouthfeel with layers of vanilla custard, toasted pecans, and cinnamon warmth"
+
+FINISH examples:
+- "Long, warm oak tannin with lingering spice, toasted oak, dry cocoa and subtle tobacco"
+- "Medium with caramel sweetness, light tobacco, lingering rye warmth"
+- "Extended and warming, fading slowly with notes of leather, dark chocolate, and sweet pipe tobacco"
+- "Clean and satisfying with lasting honey sweetness and gentle oak char"
 
 If WEB RESEARCH tasting-note evidence is provided, you MUST ground the notes in it:
 - Prefer notes that appear repeatedly across sources.
-- Map the wording from snippets into the allowed vocabulary terms (e.g., "orange zest" → "orange peel", "sweet oak" → "oak" + "brown sugar").
+- Weave the web-sourced flavors into rich, descriptive prose.
 - Avoid adding flavors that are not supported by snippets or label/production facts.
 - Do not reuse a generic/template set of notes across bottles.
 
 Anti-anchoring rule:
 - The JSON schema below shows empty arrays for nose/palate/finish on purpose. Do NOT leave them empty.
-- Populate them with real notes for THIS bottle. Avoid repeating the same default set across different bottles.
+- Populate them with RICH DESCRIPTIVE PHRASES for THIS bottle.
 
-Use these specific vocabulary terms (pick 3-5 for NOSE and PALATE; 2-4 for FINISH):
+**VOCABULARY to draw from (combine creatively with modifiers):**
 
-NOSE: vanilla, caramel, toffee, honey, brown sugar, chocolate, cocoa, coffee, dried fruit, raisin, date, fig, red fruit, cherry, stone fruit, orchard fruit, apple, pear, citrus, orange peel, tropical, malt, biscuit, nutty, almond, hazelnut, peanut brittle, baking spice, cinnamon, clove, nutmeg, pepper, herbal, floral, oak, cedar, tobacco, leather, smoke, peat, maritime, brine, earthy, mint, eucalyptus, corn, grain, butterscotch, maple
+FLAVORS: vanilla, caramel, toffee, honey, brown sugar, chocolate, cocoa, coffee, dried fruit, raisin, date, fig, red fruit, cherry, stone fruit, orchard fruit, apple, pear, citrus, orange peel, orange zest, tropical, malt, biscuit, nutty, almond, hazelnut, pecan, peanut brittle, baking spice, cinnamon, clove, nutmeg, allspice, pepper, black pepper, white pepper, herbal, floral, oak, charred oak, toasted oak, cedar, tobacco, pipe tobacco, leather, smoke, peat, maritime, brine, earthy, mint, eucalyptus, corn, grain, butterscotch, maple, dark chocolate, milk chocolate, espresso, molasses, burnt sugar, custard
 
-PALATE: (same vocabulary as nose)
+TEXTURES: creamy, silky, velvety, chewy, coating, oily, rich, thin, full-bodied, medium-bodied, light-bodied
 
-FINISH: short, medium, long, lingering, warm, spicy, sweet, dry, oaky, smooth, bold, complex, clean, rich
+FINISH DESCRIPTORS: short, medium, long, extended, lingering, persistent, warm, warming, spicy, sweet, dry, oaky, smooth, bold, complex, clean, rich, satisfying, fading, tannic
 
 ## PRODUCT TYPES (pick one):
 American Whiskey, Scotch Whisky, Irish Whiskey, Japanese Whisky, World Whiskey, Rum, Brandy, Tequila, Wine, Liqueur, Other
@@ -328,9 +396,9 @@ Return JSON in this EXACT structure:
   "description": "5-6 sentence direct-response description in Ogilvy style, grounded in label facts...",
   "product_type": "American Whiskey",
   "sub_type": "Straight Bourbon",
-  "nose": [],
-  "palate": [],
-  "finish": [],
+  "nose": ["Rich descriptive phrase 1", "descriptive phrase 2", "phrase 3"],
+  "palate": ["Evocative phrase about mouthfeel and flavors", "phrase 2", "phrase 3"],
+  "finish": ["Descriptive finish phrase with length and character", "additional notes"],
   "country": "USA",
   "region": "Kentucky",
   "cask_wood": ["American White Oak"],

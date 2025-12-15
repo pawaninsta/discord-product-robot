@@ -11,6 +11,7 @@
     "discord.js": "^14.14.1",
     "node-fetch": "^3.3.2",
     "openai": "^4.0.0",
+    "puppeteer": "^24.33.0",
     "sharp": "^0.34.3"
   }
 }
