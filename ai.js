@@ -22,12 +22,12 @@ export async function condenseTastingCardDescription({ title, description }) {
     return description;
   }
 
-  const systemPrompt = \`
+  const systemPrompt = `
 You are a whiskey copywriter condensing product descriptions for tasting cards.
-The tasting card has space for approximately \${DESCRIPTION_LIMITS.max} characters.
+The tasting card has space for approximately ${DESCRIPTION_LIMITS.max} characters.
 
 Rules:
-- Target exactly \${DESCRIPTION_LIMITS.max} characters (use the full space available)
+- Target exactly ${DESCRIPTION_LIMITS.max} characters (use the full space available)
 - Keep 4-5 sentences that tell the complete story
 - Keep the most compelling hook/unique selling point
 - Mention what makes this bottle special (age, proof, barrel selection, etc.)
@@ -37,16 +37,16 @@ Rules:
 - IMPORTANT: Do not over-condense. Fill the available space.
 
 Return ONLY the condensed description text, no JSON or formatting.
-\`;
+`;
 
-  const userPrompt = \`
-Product: \${title}
+  const userPrompt = `
+Product: ${title}
 
 Original description:
-\${description}
+${description}
 
-Condense this to approximately \${DESCRIPTION_LIMITS.max} characters (4-5 sentences) for a tasting card:
-\`;
+Condense this to approximately ${DESCRIPTION_LIMITS.max} characters (4-5 sentences) for a tasting card:
+`;
 
   try {
     const response = await openai.chat.completions.create({
@@ -93,25 +93,25 @@ export async function condenseTastingNote({ noteType, noteText }) {
     return noteText;
   }
 
-  const systemPrompt = \`
+  const systemPrompt = `
 You are condensing tasting notes for a whiskey tasting card.
-The card has space for approximately \${TASTING_NOTE_LIMITS.max} characters per tasting note.
+The card has space for approximately ${TASTING_NOTE_LIMITS.max} characters per tasting note.
 
 Rules:
-- Target exactly \${TASTING_NOTE_LIMITS.max} characters (use the full space available)
+- Target exactly ${TASTING_NOTE_LIMITS.max} characters (use the full space available)
 - Keep the most distinctive and evocative flavor descriptors
 - Maintain descriptive prose style (not just a list)
 - IMPORTANT: Do not over-condense. Fill the available space.
 
 Return ONLY the condensed tasting note text, no labels or formatting.
-\`;
+`;
 
-  const userPrompt = \`
-\${noteType.toUpperCase()} note to condense:
-\${noteText}
+  const userPrompt = `
+${noteType.toUpperCase()} note to condense:
+${noteText}
 
-Condense to approximately \${TASTING_NOTE_LIMITS.max} characters:
-\`;
+Condense to approximately ${TASTING_NOTE_LIMITS.max} characters:
+`;
 
   try {
     const response = await openai.chat.completions.create({
