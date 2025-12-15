@@ -5,8 +5,9 @@ const openai = new OpenAI({
 });
 
 // Character limits for tasting card sections (calibrated to actual layout)
-const DESCRIPTION_LIMITS = { min: 300, max: 400 };  // ~6-7 lines at 26px font
-const TASTING_NOTE_LIMITS = { min: 50, max: 100 };  // ~4 lines at 24px font
+// Note: AI targets slightly lower to avoid truncation
+const DESCRIPTION_LIMITS = { min: 300, max: 400, target: 380 };  // ~6-7 lines at 26px font
+const TASTING_NOTE_LIMITS = { min: 50, max: 100, target: 90 };  // ~4 lines at 24px font
 
 /**
  * Condense a product description for use on a tasting card.
@@ -30,18 +31,18 @@ export async function condenseTastingCardDescription({ title, description }) {
 
   const systemPrompt = `
 You are a whiskey copywriter condensing product descriptions for tasting cards.
-The tasting card has space for approximately ${DESCRIPTION_LIMITS.max} characters (about 6-7 lines).
+The tasting card has space for approximately ${DESCRIPTION_LIMITS.target} characters (about 6 lines).
 
 Rules:
-- Target between ${DESCRIPTION_LIMITS.min} and ${DESCRIPTION_LIMITS.max} characters
+- Target approximately ${DESCRIPTION_LIMITS.target} characters (HARD MAX: ${DESCRIPTION_LIMITS.max})
 - Write 4-5 COMPLETE sentences that tell the core story
-- End with a complete sentence (no trailing ellipsis or cut-off words)
+- MUST end with a complete sentence - no trailing ellipsis or cut-off words
 - Keep the most compelling hook/unique selling point
 - Mention what makes this bottle special (age, proof, barrel selection, etc.)
 - Remove redundant marketing fluff
 - Maintain the direct, Ogilvy-inspired tone
 - Do NOT include tasting notes (those appear separately on the card)
-- CRITICAL: Stay within ${DESCRIPTION_LIMITS.max} characters. Count carefully.
+- CRITICAL: End on a complete sentence. Never cut off mid-thought.
 
 Return ONLY the condensed description text, no JSON or formatting.
 `;
@@ -82,12 +83,21 @@ Condense this to approximately ${DESCRIPTION_LIMITS.max} characters (4-5 sentenc
       return description.slice(0, DESCRIPTION_LIMITS.max - 3) + "...";
     }
 
-    // Safety: if AI EXCEEDED max limit, truncate
+    // Safety: if AI EXCEEDED max limit, truncate at sentence boundary
     if (condensed.length > DESCRIPTION_LIMITS.max) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ai.js:condenseTastingCardDescription',message:'AI exceeded max - truncating',data:{condensedLen:condensed.length,maxLimit:DESCRIPTION_LIMITS.max},hypothesisId:'H2',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-      // #endregion
-      return condensed.slice(0, DESCRIPTION_LIMITS.max - 3) + "...";
+      console.log("TASTING_CARD_DEBUG: AI description exceeded max, truncating at sentence boundary");
+      // Find last sentence end within limit
+      const truncated = condensed.slice(0, DESCRIPTION_LIMITS.max);
+      const lastPeriod = truncated.lastIndexOf(". ");
+      if (lastPeriod > DESCRIPTION_LIMITS.max * 0.7) {
+        return truncated.slice(0, lastPeriod + 1);  // Include the period
+      }
+      // Fallback: cut at word boundary
+      const lastSpace = truncated.lastIndexOf(" ");
+      if (lastSpace > DESCRIPTION_LIMITS.max * 0.7) {
+        return truncated.slice(0, lastSpace);
+      }
+      return truncated;
     }
 
     return condensed;
@@ -114,14 +124,14 @@ export async function condenseTastingNote({ noteType, noteText }) {
 
   const systemPrompt = `
 You are condensing tasting notes for a whiskey tasting card.
-The card has space for approximately ${TASTING_NOTE_LIMITS.max} characters per tasting note (about 4 lines).
+The card has space for approximately ${TASTING_NOTE_LIMITS.target} characters per tasting note (about 4 lines).
 
 Rules:
-- Target between ${TASTING_NOTE_LIMITS.min} and ${TASTING_NOTE_LIMITS.max} characters
+- Target approximately ${TASTING_NOTE_LIMITS.target} characters (HARD MAX: ${TASTING_NOTE_LIMITS.max})
 - Keep the most distinctive and evocative flavor descriptors
 - Maintain descriptive prose style (not just a list)
-- End with complete content (no trailing ellipsis or cut-off words)
-- CRITICAL: Stay within ${TASTING_NOTE_LIMITS.max} characters. Count carefully.
+- MUST end with complete content - no trailing ellipsis or cut-off words
+- CRITICAL: End on a complete phrase. Never cut off mid-thought.
 
 Return ONLY the condensed tasting note text, no labels or formatting.
 `;
