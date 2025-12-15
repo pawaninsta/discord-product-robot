@@ -1,7 +1,327 @@
 import fetch from "node-fetch";
+import FormData from "form-data";
+import { Readable } from "stream";
 
 const SHOP = process.env.SHOPIFY_STORE_DOMAIN;
 const TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
+
+/**
+ * Get a product by its numeric ID (or GID)
+ * Returns product data with metafields for tasting card generation
+ */
+export async function getProductById(productId) {
+  console.log("SHOPIFY: Fetching product by ID:", productId);
+
+  // Normalize to GID if just numeric ID provided
+  const gid = String(productId).startsWith("gid://")
+    ? productId
+    : `gid://shopify/Product/${productId}`;
+
+  const query = `
+    query GetProduct($id: ID!) {
+      product(id: $id) {
+        id
+        title
+        handle
+        descriptionHtml
+        featuredImage {
+          url
+        }
+        variants(first: 1) {
+          edges {
+            node {
+              price
+            }
+          }
+        }
+        metafields(first: 30) {
+          edges {
+            node {
+              namespace
+              key
+              value
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const res = await fetch(
+    `https://${SHOP}/admin/api/2024-10/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": TOKEN,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ query, variables: { id: gid } })
+    }
+  );
+
+  const data = await res.json();
+
+  if (data.errors) {
+    console.error("SHOPIFY: GraphQL errors:", data.errors);
+    throw new Error(`Shopify GraphQL error: ${data.errors[0]?.message}`);
+  }
+
+  const product = data.data?.product;
+  if (!product) {
+    throw new Error(`Product not found: ${productId}`);
+  }
+
+  // Parse metafields into a flat object
+  const metafields = {};
+  for (const edge of product.metafields?.edges || []) {
+    const node = edge.node;
+    const fullKey = `${node.namespace}.${node.key}`;
+    metafields[fullKey] = node.value;
+  }
+
+  return {
+    id: product.id,
+    title: product.title,
+    handle: product.handle,
+    descriptionHtml: product.descriptionHtml,
+    imageUrl: product.featuredImage?.url,
+    price: product.variants?.edges?.[0]?.node?.price,
+    metafields
+  };
+}
+
+/**
+ * Upload a file (PNG buffer) to Shopify Files via stagedUploadsCreate + fileCreate
+ * Returns the MediaImage GID and CDN URL
+ */
+export async function uploadFileToShopify(pngBuffer, filename = "tasting-card.png") {
+  console.log("SHOPIFY: Uploading file to Shopify Files:", filename, "size:", pngBuffer.length);
+
+  // Step 1: Create staged upload target
+  const stagedUploadMutation = `
+    mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
+      stagedUploadsCreate(input: $input) {
+        stagedTargets {
+          url
+          resourceUrl
+          parameters {
+            name
+            value
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const stagedRes = await fetch(
+    `https://${SHOP}/admin/api/2024-10/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": TOKEN,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        query: stagedUploadMutation,
+        variables: {
+          input: [{
+            resource: "FILE",
+            filename,
+            mimeType: "image/png",
+            httpMethod: "POST"
+          }]
+        }
+      })
+    }
+  );
+
+  const stagedData = await stagedRes.json();
+
+  if (stagedData.errors || stagedData.data?.stagedUploadsCreate?.userErrors?.length > 0) {
+    const errors = stagedData.errors || stagedData.data.stagedUploadsCreate.userErrors;
+    console.error("SHOPIFY: Staged upload errors:", errors);
+    
+    // Check for ACCESS_DENIED error and provide helpful guidance
+    const isAccessDenied = stagedData.errors?.some(e => e?.extensions?.code === "ACCESS_DENIED");
+    if (isAccessDenied) {
+      throw new Error(
+        `Staged upload failed: ACCESS_DENIED. ` +
+        `Your Shopify Admin API token is missing the 'write_files' scope. ` +
+        `Go to Shopify Admin → Settings → Apps → Develop apps → Your App → Configuration → Admin API integration, ` +
+        `add 'write_files' and 'read_files' scopes, save, and regenerate the API token.`
+      );
+    }
+    
+    throw new Error(`Staged upload failed: ${JSON.stringify(errors)}`);
+  }
+
+  const target = stagedData.data?.stagedUploadsCreate?.stagedTargets?.[0];
+  if (!target) {
+    throw new Error("No staged upload target returned");
+  }
+
+  console.log("SHOPIFY: Staged upload URL:", target.url);
+
+  // Step 2: Upload the file to the staged URL
+  const formData = new FormData();
+  for (const param of target.parameters) {
+    formData.append(param.name, param.value);
+  }
+// #region agent log
+  fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'shopify.js:uploadFileToShopify:step2',message:'Buffer type check before FormData append',data:{isBuffer:Buffer.isBuffer(pngBuffer),constructorName:pngBuffer?.constructor?.name,byteLength:pngBuffer?.length||pngBuffer?.byteLength||null,firstByte:pngBuffer?.[0]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H2'})}).catch(()=>{});
+  // #endregion
+
+  // CRITICAL FIX: form-data requires a stream, not raw buffer.
+  // Readable.from(buffer) iterates over bytes as numbers, so we must wrap in array.
+  // Also ensure we have a proper Node.js Buffer, not Uint8Array.
+  const safeBuffer = Buffer.isBuffer(pngBuffer) ? pngBuffer : Buffer.from(pngBuffer);
+  const bufferStream = Readable.from([safeBuffer]);
+  formData.append("file", bufferStream, {
+    filename,
+    contentType: "image/png",
+    knownLength: safeBuffer.length
+  });
+
+  const uploadRes = await fetch(target.url, {
+    method: "POST",
+    body: formData,
+    headers: formData.getHeaders()
+  });
+
+  if (!uploadRes.ok) {
+    const uploadText = await uploadRes.text();
+    console.error("SHOPIFY: File upload failed:", uploadRes.status, uploadText);
+    throw new Error(`File upload failed: ${uploadRes.status}`);
+  }
+
+  console.log("SHOPIFY: File uploaded to staged URL");
+
+  // Step 3: Create the file in Shopify
+  const fileCreateMutation = `
+    mutation fileCreate($files: [FileCreateInput!]!) {
+      fileCreate(files: $files) {
+        files {
+          ... on MediaImage {
+            id
+            image {
+              url
+            }
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const fileRes = await fetch(
+    `https://${SHOP}/admin/api/2024-10/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": TOKEN,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        query: fileCreateMutation,
+        variables: {
+          files: [{
+            contentType: "IMAGE",
+            originalSource: target.resourceUrl
+          }]
+        }
+      })
+    }
+  );
+
+  const fileData = await fileRes.json();
+
+  if (fileData.errors || fileData.data?.fileCreate?.userErrors?.length > 0) {
+    const errors = fileData.errors || fileData.data.fileCreate.userErrors;
+    console.error("SHOPIFY: File create errors:", errors);
+    throw new Error(`File create failed: ${JSON.stringify(errors)}`);
+  }
+
+  const file = fileData.data?.fileCreate?.files?.[0];
+  if (!file) {
+    throw new Error("No file created");
+  }
+
+  console.log("SHOPIFY: File created:", file.id);
+
+  return {
+    id: file.id,
+    url: file.image?.url
+  };
+}
+
+/**
+ * Set a file_reference metafield on a product
+ */
+export async function setProductMetafield(productId, namespace, key, fileId) {
+  console.log("SHOPIFY: Setting metafield", `${namespace}.${key}`, "on product:", productId);
+
+  // Normalize to GID if just numeric ID provided
+  const productGid = String(productId).startsWith("gid://")
+    ? productId
+    : `gid://shopify/Product/${productId}`;
+
+  const mutation = `
+    mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields {
+          id
+          key
+          value
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const res = await fetch(
+    `https://${SHOP}/admin/api/2024-10/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": TOKEN,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        query: mutation,
+        variables: {
+          metafields: [{
+            ownerId: productGid,
+            namespace,
+            key,
+            value: fileId,
+            type: "file_reference"
+          }]
+        }
+      })
+    }
+  );
+
+  const data = await res.json();
+
+  if (data.errors || data.data?.metafieldsSet?.userErrors?.length > 0) {
+    const errors = data.errors || data.data.metafieldsSet.userErrors;
+    console.error("SHOPIFY: Metafield set errors:", errors);
+    throw new Error(`Metafield set failed: ${JSON.stringify(errors)}`);
+  }
+
+  console.log("SHOPIFY: Metafield set successfully");
+  return data.data?.metafieldsSet?.metafields?.[0];
+}
 
 /**
  * Create a draft product with metafields
