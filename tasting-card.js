@@ -162,12 +162,22 @@ async function prepareProductData(product) {
   
   // Strip HTML from description and optionally condense
   let description = stripHtml(product.descriptionHtml);
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tasting-card.js:prepareProductData',message:'BEFORE condenseTastingCardDescription',data:{descriptionLenBefore:description.length,titleLen:product.title.length,title:product.title,noseLen:nose.length,palateLen:palate.length,finishLen:finish.length},hypothesisId:'H1-H3',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+  // #endregion
   description = await condenseTastingCardDescription({
     title: product.title,
     description
   });
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tasting-card.js:prepareProductData',message:'AFTER condenseTastingCardDescription',data:{descriptionLenAfter:description.length,descriptionExcerpt:description.slice(0,100)},hypothesisId:'H2',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+  // #endregion
   
   const abvParsed = parseAbvProof(abv);
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'tasting-card.js:prepareProductData',message:'Final data lengths',data:{titleLen:product.title.length,descLen:description.length,noseLen:nose.length,palateLen:palate.length,finishLen:finish.length,nose:nose.slice(0,80),palate:palate.slice(0,80),finish:finish.slice(0,80)},hypothesisId:'H1-H4',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+  // #endregion
   
   return {
     title: product.title,

@@ -13,12 +13,18 @@ const TASTING_NOTE_LIMITS = { min: 50, max: 150 };
  * Only condenses if text exceeds max limit. Targets max to fill available space.
  */
 export async function condenseTastingCardDescription({ title, description }) {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ai.js:condenseTastingCardDescription',message:'Entry',data:{descLen:description?.length||0,maxLimit:DESCRIPTION_LIMITS.max,willCondense:(description?.length||0)>DESCRIPTION_LIMITS.max},hypothesisId:'H2',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+  // #endregion
   if (!description || description.trim().length === 0) {
     return "";
   }
 
   // If already fits within max, return as-is (no API call needed)
   if (description.length <= DESCRIPTION_LIMITS.max) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ai.js:condenseTastingCardDescription',message:'Skipping - already fits',data:{descLen:description.length},hypothesisId:'H2',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+    // #endregion
     return description;
   }
 
@@ -61,6 +67,10 @@ Condense this to approximately ${DESCRIPTION_LIMITS.max} characters (4-5 sentenc
 
     const condensed = response?.choices?.[0]?.message?.content?.trim();
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ai.js:condenseTastingCardDescription',message:'AI returned',data:{condensedLen:condensed?.length||0,maxLimit:DESCRIPTION_LIMITS.max,overLimit:(condensed?.length||0)>DESCRIPTION_LIMITS.max},hypothesisId:'H2',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+    // #endregion
+    
     if (!condensed) {
       // Fallback: truncate original
       return description.slice(0, DESCRIPTION_LIMITS.max - 3) + "...";
@@ -69,6 +79,14 @@ Condense this to approximately ${DESCRIPTION_LIMITS.max} characters (4-5 sentenc
     // Safety: if AI over-condensed below minimum, use truncation instead
     if (condensed.length < DESCRIPTION_LIMITS.min) {
       return description.slice(0, DESCRIPTION_LIMITS.max - 3) + "...";
+    }
+
+    // Safety: if AI EXCEEDED max limit, truncate
+    if (condensed.length > DESCRIPTION_LIMITS.max) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ai.js:condenseTastingCardDescription',message:'AI exceeded max - truncating',data:{condensedLen:condensed.length,maxLimit:DESCRIPTION_LIMITS.max},hypothesisId:'H2',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+      // #endregion
+      return condensed.slice(0, DESCRIPTION_LIMITS.max - 3) + "...";
     }
 
     return condensed;
