@@ -202,18 +202,21 @@ async function prepareProductData(product) {
     description
   });
   
-  // Condense tasting notes to fit within 4 lines each
+  // Condense tasting notes using AI to fit within ~4 lines each
   if (nose && nose.length > TASTING_NOTE_MAX_CHARS) {
-    nose = truncateTastingNote(nose);
-    console.log("TASTING_CARD_DEBUG: Truncated nose to", nose.length, "chars");
+    console.log("TASTING_CARD_DEBUG: Condensing nose from", nose.length, "chars");
+    nose = await condenseTastingNote({ noteType: "nose", noteText: nose });
+    console.log("TASTING_CARD_DEBUG: Condensed nose to", nose.length, "chars");
   }
   if (palate && palate.length > TASTING_NOTE_MAX_CHARS) {
-    palate = truncateTastingNote(palate);
-    console.log("TASTING_CARD_DEBUG: Truncated palate to", palate.length, "chars");
+    console.log("TASTING_CARD_DEBUG: Condensing palate from", palate.length, "chars");
+    palate = await condenseTastingNote({ noteType: "palate", noteText: palate });
+    console.log("TASTING_CARD_DEBUG: Condensed palate to", palate.length, "chars");
   }
   if (finish && finish.length > TASTING_NOTE_MAX_CHARS) {
-    finish = truncateTastingNote(finish);
-    console.log("TASTING_CARD_DEBUG: Truncated finish to", finish.length, "chars");
+    console.log("TASTING_CARD_DEBUG: Condensing finish from", finish.length, "chars");
+    finish = await condenseTastingNote({ noteType: "finish", noteText: finish });
+    console.log("TASTING_CARD_DEBUG: Condensed finish to", finish.length, "chars");
   }
   
   // Truncate title to fit 2 lines
