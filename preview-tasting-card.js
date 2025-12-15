@@ -26,8 +26,9 @@ const TEMPLATE_HTML = readFileSync(TEMPLATE_PATH, "utf-8");
 const SAMPLE_DATA = {
   title: "Smoke Wagon Straight Bourbon Whiskey 750ml",
   imageUrl: "https://cdn.shopify.com/s/files/1/0740/7261/6785/files/smoke-wagon-straight-bourbon.png?v=1699574400",
-  countryFlag: "🇺🇸",
+  countryFlagUrl: "https://flagcdn.com/w80/us.png",
   location: "Nevada, USA",
+  subType: "Straight Bourbon",
   ageStatement: "NAS",
   abvDisplay: "46.25% (≈93 proof)",
   price: "$34.99",
@@ -42,16 +43,16 @@ const SAMPLE_DATA = {
  * Generate a simple placeholder QR code (gray square with text)
  */
 function generatePlaceholderQR() {
-  // Create a simple SVG placeholder for the QR code
+  // Create a simple SVG placeholder for the QR code (320x320 to match template)
   const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180">
-      <rect width="180" height="180" fill="#f0f0f0" rx="8"/>
-      <rect x="20" y="20" width="140" height="140" fill="#1a1a1a" rx="4"/>
-      <rect x="30" y="30" width="40" height="40" fill="#ffffff"/>
-      <rect x="110" y="30" width="40" height="40" fill="#ffffff"/>
-      <rect x="30" y="110" width="40" height="40" fill="#ffffff"/>
-      <rect x="80" y="80" width="20" height="20" fill="#ffffff"/>
-      <text x="90" y="175" text-anchor="middle" font-family="Inter, sans-serif" font-size="10" fill="#666">whiskeylibrary.com</text>
+    <svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+      <rect width="320" height="320" fill="#f0f0f0" rx="8"/>
+      <rect x="30" y="30" width="260" height="260" fill="#1a1a1a" rx="4"/>
+      <rect x="50" y="50" width="70" height="70" fill="#ffffff"/>
+      <rect x="200" y="50" width="70" height="70" fill="#ffffff"/>
+      <rect x="50" y="200" width="70" height="70" fill="#ffffff"/>
+      <rect x="140" y="140" width="40" height="40" fill="#ffffff"/>
+      <text x="160" y="310" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#666">whiskeylibrary.com</text>
     </svg>
   `;
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
@@ -78,8 +79,9 @@ function buildPreviewHtml(data) {
   const replacements = {
     "{{TITLE}}": escapeHtml(data.title),
     "{{IMAGE_URL}}": data.imageUrl || "https://via.placeholder.com/380x450/f8f8f8/999999?text=Bottle+Image",
-    "{{COUNTRY_FLAG}}": data.countryFlag,
+    "{{COUNTRY_FLAG_URL}}": data.countryFlagUrl || "https://flagcdn.com/w80/us.png",
     "{{LOCATION}}": escapeHtml(data.location),
+    "{{SUB_TYPE}}": escapeHtml(data.subType),
     "{{AGE_STATEMENT}}": escapeHtml(data.ageStatement),
     "{{ABV_DISPLAY}}": escapeHtml(data.abvDisplay),
     "{{PRICE}}": data.price,
@@ -178,7 +180,7 @@ async function main() {
   console.log("Sample data used:");
   console.log("─".repeat(50));
   console.log(`  Title:    ${SAMPLE_DATA.title}`);
-  console.log(`  Location: ${SAMPLE_DATA.countryFlag} ${SAMPLE_DATA.location}`);
+  console.log(`  Location: ${SAMPLE_DATA.location}`);
   console.log(`  Age:      ${SAMPLE_DATA.ageStatement}`);
   console.log(`  ABV:      ${SAMPLE_DATA.abvDisplay}`);
   console.log(`  Price:    ${SAMPLE_DATA.price}`);

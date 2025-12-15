@@ -14,7 +14,7 @@ export async function condenseTastingCardDescription({ title, description }) {
   }
 
   // If already short enough, return as-is
-  if (description.length <= 280) {
+  if (description.length <= 400) {
     return description;
   }
 
@@ -23,7 +23,7 @@ You are a whiskey copywriter condensing product descriptions for tasting cards.
 The tasting card has LIMITED SPACE - you must be concise.
 
 Rules:
-- Maximum 2-3 sentences (under 280 characters ideal)
+- Maximum 3-4 sentences (under 400 characters ideal)
 - Keep the most compelling hook/unique selling point
 - Mention what makes this bottle special (age, proof, barrel selection, etc.)
 - Remove redundant marketing fluff
@@ -57,7 +57,7 @@ Condense this to 2-3 punchy sentences for a tasting card:
     
     if (!condensed) {
       // Fallback: truncate original
-      return description.slice(0, 277) + "...";
+      return description.slice(0, 397) + "...";
     }
 
     return condensed;
