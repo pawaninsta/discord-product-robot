@@ -6,9 +6,9 @@ import { dirname, join } from "path";
 import { getProductById, uploadFileToShopify, setProductMetafield } from "./shopify.js";
 import { condenseTastingCardDescription, condenseTastingNote } from "./ai.js";
 
-// Content limits for tasting card layout
-const TITLE_MAX_CHARS = 75;  // ~2 lines at 54px font
-const TASTING_NOTE_MAX_CHARS = 120;  // ~4 lines per note
+// Content limits for tasting card layout (calibrated to actual font/width)
+const TITLE_MAX_CHARS = 75;  // ~2 lines at 54px font, ~1135px width
+const TASTING_NOTE_MAX_CHARS = 100;  // ~4 lines at 24px font, ~300px column width
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

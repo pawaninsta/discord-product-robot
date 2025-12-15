@@ -4,9 +4,9 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// Character limits for tasting card sections
-const DESCRIPTION_LIMITS = { min: 300, max: 550 };
-const TASTING_NOTE_LIMITS = { min: 50, max: 150 };
+// Character limits for tasting card sections (calibrated to actual layout)
+const DESCRIPTION_LIMITS = { min: 250, max: 330 };  // ~5-6 lines at 26px font
+const TASTING_NOTE_LIMITS = { min: 50, max: 100 };  // ~4 lines at 24px font
 
 /**
  * Condense a product description for use on a tasting card.
@@ -30,17 +30,17 @@ export async function condenseTastingCardDescription({ title, description }) {
 
   const systemPrompt = `
 You are a whiskey copywriter condensing product descriptions for tasting cards.
-The tasting card has space for approximately ${DESCRIPTION_LIMITS.max} characters.
+The tasting card has space for approximately ${DESCRIPTION_LIMITS.max} characters (about 5-6 lines).
 
 Rules:
-- Target exactly ${DESCRIPTION_LIMITS.max} characters (use the full space available)
-- Keep 4-5 sentences that tell the complete story
+- Target EXACTLY ${DESCRIPTION_LIMITS.max} characters or LESS - this is a HARD LIMIT
+- Keep 3-4 sentences that tell the core story
 - Keep the most compelling hook/unique selling point
 - Mention what makes this bottle special (age, proof, barrel selection, etc.)
 - Remove redundant marketing fluff
 - Maintain the direct, Ogilvy-inspired tone
 - Do NOT include tasting notes (those appear separately on the card)
-- IMPORTANT: Do not over-condense. Fill the available space.
+- CRITICAL: Never exceed ${DESCRIPTION_LIMITS.max} characters. Count carefully.
 
 Return ONLY the condensed description text, no JSON or formatting.
 `;
@@ -113,13 +113,13 @@ export async function condenseTastingNote({ noteType, noteText }) {
 
   const systemPrompt = `
 You are condensing tasting notes for a whiskey tasting card.
-The card has space for approximately ${TASTING_NOTE_LIMITS.max} characters per tasting note.
+The card has space for approximately ${TASTING_NOTE_LIMITS.max} characters per tasting note (about 4 lines).
 
 Rules:
-- Target exactly ${TASTING_NOTE_LIMITS.max} characters (use the full space available)
+- Target EXACTLY ${TASTING_NOTE_LIMITS.max} characters or LESS - this is a HARD LIMIT
 - Keep the most distinctive and evocative flavor descriptors
 - Maintain descriptive prose style (not just a list)
-- IMPORTANT: Do not over-condense. Fill the available space.
+- CRITICAL: Never exceed ${TASTING_NOTE_LIMITS.max} characters. Count carefully.
 
 Return ONLY the condensed tasting note text, no labels or formatting.
 `;
