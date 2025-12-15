@@ -110,15 +110,15 @@ export function buildTastingPriors({
   if (finish_type !== "None") rationale.push(`Detected finish cue: ${finish_type}`);
   if (parsePercent(abv) || parseProof(proof)) rationale.push(`Intensity adjusted by proof/ABV (${abv || proof || "unknown"})`);
 
-  // Base palettes by category
-  const baseBourbonNose = ["caramel", "vanilla", "brown sugar", "oak", "baking spice", "butterscotch", "maple", "orange peel"];
-  const baseBourbonPalate = ["toffee", "honey", "brown sugar", "oak", "cinnamon", "pepper", "chocolate"];
-  const baseRyeNose = ["mint", "eucalyptus", "pepper", "baking spice", "oak", "citrus", "orange peel"];
-  const baseRyePalate = ["pepper", "cinnamon", "clove", "mint", "oak", "honey"];
-  const baseCornNose = ["corn", "grain", "honey", "butterscotch", "baking spice", "herbal"];
-  const baseCornPalate = ["corn", "honey", "toffee", "pepper", "oak", "citrus"];
-  const baseScotchNose = ["smoke", "earthy", "malt", "oak", "citrus", "dried fruit"];
-  const baseScotchPalate = ["smoke", "pepper", "malt", "oak", "dried fruit", "chocolate"];
+  // Base palettes by category - using rich, descriptive phrases
+  const baseBourbonNose = ["rich caramel and vanilla", "toasted oak with brown sugar", "warm baking spices", "butterscotch and maple sweetness", "hints of orange peel"];
+  const baseBourbonPalate = ["honeyed toffee and brown sugar", "charred oak with cinnamon warmth", "black pepper and dark chocolate", "full-bodied and coating"];
+  const baseRyeNose = ["fresh mint and eucalyptus", "bold pepper and baking spices", "toasted oak with citrus zest", "herbal undertones"];
+  const baseRyePalate = ["spicy rye character with black pepper", "cinnamon and clove warmth", "hints of mint and honey", "medium-bodied with oak backbone"];
+  const baseCornNose = ["sweet corn and grain", "light honey and butterscotch", "gentle baking spices", "subtle herbal notes"];
+  const baseCornPalate = ["creamy corn sweetness", "honey and light toffee", "gentle pepper and oak", "citrus brightness"];
+  const baseScotchNose = ["peat smoke and earthy notes", "malty sweetness with oak", "dried fruit and citrus", "maritime hints"];
+  const baseScotchPalate = ["smoky and peppery", "rich malt with oak tannins", "dried fruit and dark chocolate", "complex and layered"];
 
   let nose = [];
   let palate = [];
