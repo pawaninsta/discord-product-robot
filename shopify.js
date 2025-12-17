@@ -262,10 +262,17 @@ export async function uploadFileToShopify(pngBuffer, filename = "tasting-card.pn
 }
 
 /**
- * Set a file_reference metafield on a product
+ * Set a metafield on a product
+ * 
+ * @param {string} productId - Product ID (numeric or GID)
+ * @param {string} namespace - Metafield namespace (e.g., "custom")
+ * @param {string} key - Metafield key
+ * @param {string} value - Value to set
+ * @param {string} type - Metafield type (default: "single_line_text_field")
+ *                        Common types: "single_line_text_field", "file_reference", "number_integer"
  */
-export async function setProductMetafield(productId, namespace, key, fileId) {
-  console.log("SHOPIFY: Setting metafield", `${namespace}.${key}`, "on product:", productId);
+export async function setProductMetafield(productId, namespace, key, value, type = "single_line_text_field") {
+  console.log("SHOPIFY: Setting metafield", `${namespace}.${key}`, "on product:", productId, "type:", type);
 
   // Normalize to GID if just numeric ID provided
   const productGid = String(productId).startsWith("gid://")
@@ -303,8 +310,8 @@ export async function setProductMetafield(productId, namespace, key, fileId) {
             ownerId: productGid,
             namespace,
             key,
-            value: fileId,
-            type: "file_reference"
+            value,
+            type
           }]
         }
       })

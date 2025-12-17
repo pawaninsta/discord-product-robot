@@ -420,8 +420,8 @@ export async function generateTastingCard({ productId, adminUrl, uploadToShopify
       cardImageUrl = file.url;
       cardImageId = file.id;
       
-      // Set metafield on product
-      await setProductMetafield(product.id, "custom", "tasting_card", file.id);
+      // Set metafield on product (file_reference type for the tasting card image)
+      await setProductMetafield(product.id, "custom", "tasting_card", file.id, "file_reference");
       
       console.log("TASTING CARD: Attached to product via metafield");
     }
