@@ -1,3 +1,6 @@
 {
-  "start": "npm start"
+  "build": {},
+  "deploy": {
+    "startCommand": "node index.js & node tasting-card-server.js"
+  }
 }
