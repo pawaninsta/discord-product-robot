@@ -62,13 +62,17 @@ function createTastingCardHash(product) {
  *   }
  */
 app.post("/tasting-card/generate", async (req, res) => {
-  console.log("TASTING CARD SERVER: Received request", req.body);
+  console.log("TASTING CARD SERVER: Received request", JSON.stringify(req.body).slice(0, 500));
 
   try {
     const { product_id, admin_url, force } = req.body;
     const forceRegenerate = force === true;
 
-    let productId = product_id;
+    // Support multiple formats:
+    // 1. Shopify Flow: { "product_id": "12345" }
+    // 2. Native Shopify webhook: { "id": 12345, "title": "...", ... }
+    // 3. Admin URL: { "admin_url": "https://..." }
+    let productId = product_id || req.body.id;
 
     // Extract product ID from admin URL if provided
     if (!productId && admin_url) {
