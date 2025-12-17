@@ -125,10 +125,14 @@
     }
 
     .description p {
-      font-size: 26px;
+      font-size: 29px;
       line-height: 1.55;
       color: var(--color-text);
       text-align: center;
+      display: -webkit-box;
+      -webkit-line-clamp: 5;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
     }
 
     /* Divider */
@@ -175,9 +179,13 @@
     }
 
     .tasting-col p {
-      font-size: 24px;
+      font-size: 26px;
       line-height: 1.45;
       color: var(--color-text);
+      display: -webkit-box;
+      -webkit-line-clamp: 4;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
     }
 
     /* Footer section - no border */
