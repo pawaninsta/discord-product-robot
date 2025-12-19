@@ -2,12 +2,22 @@ import { Client, GatewayIntentBits, AttachmentBuilder } from "discord.js";
 import { runPipeline } from "./pipeline.js";
 import { generateTastingCard } from "./tasting-card.js";
 
+// Global error handler to prevent crashes from unhandled promise rejections
+process.on('unhandledRejection', (error) => {
+  console.error('Unhandled promise rejection:', error);
+});
+
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
 client.once("ready", () => {
   console.log("🤖 Robot is online");
+});
+
+// Prevent Discord client errors from crashing the bot
+client.on('error', (error) => {
+  console.error('Discord client error:', error);
 });
 
 function safeThreadName(base) {
@@ -34,7 +44,13 @@ client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "tastingcard") {
-    await interaction.deferReply();
+    // Try to defer - if this fails, the interaction has expired (3s timeout)
+    try {
+      await interaction.deferReply();
+    } catch (err) {
+      console.error("Failed to defer reply (interaction expired or invalid):", err.message);
+      return; // Exit early - we can't respond to an expired interaction
+    }
 
     const adminUrl = interaction.options.getString("url");
     const force = interaction.options.getBoolean("force") || false;
