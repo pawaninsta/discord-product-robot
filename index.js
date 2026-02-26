@@ -1,3 +1,4 @@
+import http from "http";
 import { Client, GatewayIntentBits, AttachmentBuilder } from "discord.js";
 import { runPipeline } from "./pipeline.js";
 import { generateTastingCard } from "./tasting-card.js";
@@ -8,7 +9,39 @@ const client = new Client({
 });
 
 client.once("ready", () => {
-  console.log("🤖 Robot is online");
+  console.log(`[bot] Logged in as ${client.user.tag} — bot is ready`);
+});
+
+const HEALTH_PORT = process.env.HEALTH_PORT || 8080;
+
+const healthServer = http.createServer((req, res) => {
+  const start = Date.now();
+  if (req.method === "GET" && req.url === "/health") {
+    const isReady = client.isReady();
+    const status = isReady ? 200 : 503;
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      status: isReady ? "ok" : "starting",
+      service: "discord-bot",
+      uptime: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString()
+    }));
+    const duration = Date.now() - start;
+    console.log(`[health] ${req.method} ${req.url} ${status} ${duration}ms`);
+  } else {
+    res.writeHead(404);
+    res.end();
+    console.log(`[health] ${req.method} ${req.url} 404`);
+  }
+});
+
+healthServer.listen(HEALTH_PORT, () => {
+  console.log(`[health] Health check server listening on port ${HEALTH_PORT}`);
+});
+
+process.on("SIGTERM", () => {
+  console.log("[health] SIGTERM received — shutting down health server");
+  healthServer.close();
 });
 
 function safeThreadName(base) {
