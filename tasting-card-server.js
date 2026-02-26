@@ -178,7 +178,15 @@ app.post("/tasting-card/generate", async (req, res) => {
  * Simple health check endpoint
  */
 app.get("/health", (req, res) => {
-  res.status(200).json({ status: "ok", service: "tasting-card-server" });
+  const start = Date.now();
+  res.status(200).json({
+    status: "ok",
+    service: "tasting-card-server",
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString()
+  });
+  const duration = Date.now() - start;
+  console.log(`[health] GET /health 200 ${duration}ms`);
 });
 
 /**
