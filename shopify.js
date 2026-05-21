@@ -267,6 +267,55 @@ export async function uploadFileToShopify(pngBuffer, filename = "tasting-card.pn
 }
 
 /**
+ * Update an existing product's body HTML (descriptionHtml) only.
+ * Used by /update-description so we don't touch any other product fields.
+ */
+export async function updateProductDescription(productGidOrId, descriptionHtml) {
+  const productGid = String(productGidOrId).startsWith("gid://")
+    ? productGidOrId
+    : `gid://shopify/Product/${productGidOrId}`;
+
+  const mutation = `
+    mutation ProductUpdateDescription($input: ProductInput!) {
+      productUpdate(input: $input) {
+        product { id descriptionHtml }
+        userErrors { field message }
+      }
+    }
+  `;
+
+  const res = await fetch(
+    `https://${SHOP}/admin/api/2024-10/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": TOKEN,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        query: mutation,
+        variables: { input: { id: productGid, descriptionHtml } }
+      })
+    }
+  );
+
+  const data = await res.json();
+
+  if (data.errors) {
+    console.error("SHOPIFY: updateProductDescription GraphQL errors:", data.errors);
+    throw new Error(`Description update failed: ${data.errors[0]?.message}`);
+  }
+
+  const userErrors = data.data?.productUpdate?.userErrors || [];
+  if (userErrors.length > 0) {
+    console.error("SHOPIFY: updateProductDescription user errors:", userErrors);
+    throw new Error(`Description update userError: ${userErrors[0].message}`);
+  }
+
+  return data.data?.productUpdate?.product;
+}
+
+/**
  * Set a metafield on a product
  * 
  * @param {string} productId - Product ID (numeric or GID)

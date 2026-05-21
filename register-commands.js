@@ -123,6 +123,27 @@ const commands = [
         .setDescription("GitHub issue number to implement")
         .setMinValue(1)
         .setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("update-description")
+    .setDescription("Regenerate a product description with the standard short blurb + bullet format")
+    .addStringOption(option =>
+      option
+        .setName("url")
+        .setDescription("Shopify admin product URL")
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName("notes")
+        .setDescription("Optional notes / new facts to ground the rewrite")
+        .setRequired(false)
+    )
+    .addBooleanOption(option =>
+      option
+        .setName("apply")
+        .setDescription("Skip preview and write to Shopify immediately (default false)")
+        .setRequired(false)
     )
 ].map(command => command.toJSON());
 

@@ -2,6 +2,7 @@ import { Client, GatewayIntentBits, AttachmentBuilder } from "discord.js";
 import { runPipeline } from "./pipeline.js";
 import { generateTastingCard } from "./tasting-card.js";
 import { handleDevCommand, handleDevReviseCommand, handleDevApproveCommand } from "./dev-command.js";
+import { handleUpdateDescriptionCommand } from "./update-description.js";
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
@@ -94,6 +95,11 @@ client.on("interactionCreate", async interaction => {
 
   if (interaction.commandName === "dev-approve") {
     await handleDevApproveCommand(interaction);
+    return;
+  }
+
+  if (interaction.commandName === "update-description") {
+    await handleUpdateDescriptionCommand(interaction);
     return;
   }
 
