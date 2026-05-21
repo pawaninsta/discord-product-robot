@@ -339,7 +339,7 @@ ${notes || ""}
  * Generate structured product data for Shopify
  * Uses IMAGE + NOTES + optional web research (Vision enabled)
  */
-export async function generateProductData({ notes, imageUrl, webResearch, tastingPriors, tastingMode = "inferred" }) {
+export async function generateProductData({ notes, imageUrl, webResearch, tastingPriors, tastingMode = "inferred", choicesBlock = "" }) {
   console.log("AI STEP: Generating product data (with vision)");
   console.log("AI INPUT NOTES:", notes);
   console.log("AI IMAGE URL:", imageUrl);
@@ -394,36 +394,31 @@ Example: "Buffalo Trace Kentucky Straight Bourbon Whiskey 750ml"
 Example: "Blanton's Single Barrel Bourbon 750ml"
 Example: "Elijah Craig Small Batch 12 Year 750ml"
 
-## DESCRIPTION FORMAT - TELL THE UNIQUE STORY (5-6 sentences)
-Your description MUST answer: "What makes THIS bottle special and collectible?"
+## DESCRIPTION FORMAT (STRICT — short blurb + bullet highlights, ≤700 chars TOTAL)
+Return TWO fields:
 
-Structure your description:
-1. **The Hook** - What makes THIS SPECIFIC RELEASE unique and sought-after:
-   - Is it from a special warehouse? (e.g., Coy Hill warehouses sit at the highest elevation at Jack Daniel's, where extreme temperature swings concentrate flavors)
-   - Does it use a heritage/unique mashbill? (e.g., Jimmy Red is an heirloom corn variety nearly lost to history)
-   - Is it limited/allocated? Why do collectors want it?
-   - Is it cask strength or single barrel? What makes that special for this producer?
-   - Does it have an unusual proof point or age?
+"short_description":
+  One sentence, ≤140 characters, the hook. Plain text (no HTML). Used on tasting cards and listing previews.
 
-2. **Brand Heritage** - Brief distillery history that adds credibility:
-   - When was it founded? By whom?
-   - What is this distillery known for?
-   - Any notable achievements or recognition?
+"description":
+  HTML body in this EXACT structure (≤700 characters total, counting all HTML):
 
-3. **Production Details** - Specific to this release:
-   - Proof/ABV and what that means for flavor intensity
-   - Aging details, barrel type, warehouse conditions
-   - Any special production methods
+  <p>{2–3 sentence story paragraph. Specific facts from the label and web research only. The hook (warehouse / mashbill / allocation / age / proof) → why it's special → who it's for.}</p>
+  <ul>
+    <li><strong>Age:</strong> {age_statement, e.g. "11 Years" or "NAS"}</li>
+    <li><strong>Proof:</strong> {proof number, e.g. "115 proof" or "—" if unknown}</li>
+    <li><strong>Mash Bill:</strong> {short description, e.g. "High-rye bourbon (75% corn / 21% rye / 4% malted barley)" or "—"}</li>
+    <li><strong>Finish:</strong> {cask finish if any, e.g. "PX Sherry" or "Traditional oak"}</li>
+    <li><strong>Distillery:</strong> {distillery_name + state, e.g. "MGP, Indiana" or vendor + state}</li>
+    <li><strong>Allocation:</strong> {"Limited release" if limited_time_offer else "Year-round"}</li>
+  </ul>
 
-4. **Tasting Preview** - What collectors can expect:
-   - Tie the tasting notes to the production method
-   - E.g., "The extreme temperature swings at Coy Hill extract deep oak character..."
-
-5. **Collector Appeal** - Why add this to a collection:
-   - Rarity, allocation status, or limited nature
-   - Perfect for special occasions
-
-## AVOID THESE GENERIC PHRASES:
+STRICT RULES:
+- Total HTML length ≤ 700 characters. Count whole HTML (tags included).
+- The <p> must end on a complete sentence — no ellipses, no cut-offs.
+- Every <li> must be present even if a value is unknown ("—"). Keeps layout stable.
+- Do NOT add extra paragraphs, headings, links, or images. Only <p> followed by <ul><li>…</li></ul>.
+- Avoid generic phrases:
 - "crafted with care" / "meticulously crafted"
 - "rich heritage" (be specific instead)
 - "perfect for any occasion"
@@ -518,11 +513,33 @@ American White Oak, European Oak, French Oak, Ex-Bourbon Barrels, Sherry Casks, 
 ## FINISH TYPES (if secondary finish):
 None, Sherry, Port, Madeira, Wine, Rum, Cognac, Beer/Stout, Maple, Honey, Toasted Barrel, Double Oak, Other
 
+## MASH_BILL CLASSIFICATION (REQUIRED for bourbons, EMPTY for everything else)
+Pick exactly ONE token based on label + web research:
+- "traditional_bourbon": 70–78% corn, ~10–15% rye, ~10–15% malted barley (e.g. Buffalo Trace, Wild Turkey, Heaven Hill standard mash).
+- "high_rye_bourbon":    ≥18% rye in the mashbill (e.g. Bulleit, Four Roses high-rye recipes, Old Grand-Dad, Basil Hayden).
+- "wheated_bourbon":     wheat replaces rye as the secondary grain (e.g. Maker's Mark, Weller, Pappy, Larceny, Old Fitzgerald).
+- "four_grain":          corn + rye + wheat + malted barley (e.g. Woodford Four Grain, Bardstown Origin).
+- "high_corn":           ≥80% corn (heritage corn bourbons such as Jimmy Red, or corn whiskeys).
+- "" (empty string):     rye whiskey, scotch, Irish, Japanese, world whiskey, blended whiskey, or any bottle where the bourbon mash bill is not clearly identifiable.
+
+## EVIDENCE RULES FOR BOOLEANS (do NOT set a boolean to true without label or web evidence)
+- "single_barrel": only true if the label / web research mentions "Single Barrel", "Single Cask", "Barrel No.", or you can cite a specific barrel number. Otherwise false.
+- "store_pick": only true if you see retail logos / stickers / "Store Pick" / "Private Selection" / "@whiskeylibrary" or equivalent. Otherwise false.
+- "cask_strength": only true if the label says "Cask Strength" / "Barrel Proof" / "Barrel Strength" OR the ABV is ≥50%. Otherwise false.
+- "finished": true ONLY if the bottle has a SECONDARY cask finish (e.g. sherry, port, madeira, rum). If true, "finish_type" MUST contain the actual finish (Sherry/Port/etc.). If false, "finish_type" MUST be the empty array [] — do NOT write "Traditional Oak Aging" or any made-up value.
+- "bottled_in_bond": only true if "Bottled in Bond" / "BiB" is on the label.
+- "limited_time_offer": true for "Limited Release", "Special Release", "Allocated", or known allocated lines (BTAC, ECBP, Stagg, Coy Hill, etc.).
+
+Set the corresponding "evidence" array to the short label/web phrases that justified each true boolean.
+
+${choicesBlock || "## SHOPIFY ALLOWED CHOICES (unavailable — use conservative defaults)"}
+
 Return JSON in this EXACT structure:
 {
   "vendor": "Brand/Distillery Name",
   "title": "Full Product Name with Size (e.g., Brand Name Bourbon 750ml)",
-  "description": "5-6 sentence direct-response description in Ogilvy style, grounded in label facts...",
+  "short_description": "One-sentence hook ≤140 chars (plain text).",
+  "description": "<p>...</p><ul><li>...</li>...</ul>  // ≤700 chars total HTML, exact structure above",
   "product_type": "American Whiskey",
   "sub_type": "Straight Bourbon",
   "nose": ["Rich descriptive phrase 1", "descriptive phrase 2", "phrase 3"],
@@ -530,8 +547,10 @@ Return JSON in this EXACT structure:
   "finish": ["Descriptive finish phrase with length and character", "additional notes"],
   "country": "USA",
   "region": "Kentucky",
+  "distillery_name": "",
   "cask_wood": ["American White Oak"],
-  "finish_type": "None",
+  "finish_type": [],
+  "mash_bill": "",
   "age_statement": "NAS",
   "abv": "",
   "needs_abv": false,
@@ -545,7 +564,15 @@ Return JSON in this EXACT structure:
   "cask_strength": false,
   "single_barrel": false,
   "bottled_in_bond": false,
-  "limited_time_offer": false
+  "limited_time_offer": false,
+  "evidence": {
+    "single_barrel": [],
+    "store_pick": [],
+    "cask_strength": [],
+    "finished": [],
+    "bottled_in_bond": [],
+    "limited_time_offer": []
+  }
 }
 `;
 
@@ -694,10 +721,28 @@ REMEMBER: Our customers are collectors who know whiskey. Tell them WHY this bott
     data.vendor = "";
   }
 
-  // Build description if missing
+  // Build description if missing — emit the structured HTML skeleton so downstream consumers
+  // never see a free-form fallback.
   if (!data.description && data.title) {
-    data.description = `${data.title} delivers an exceptional drinking experience. This ${data.sub_type || 'whiskey'} from ${data.region || 'a renowned distillery'} showcases the craftsmanship that has made ${data.vendor} a favorite among spirits enthusiasts. With notes of ${(data.nose || ['oak', 'vanilla']).slice(0, 2).join(' and ')}, this bottle is perfect for sipping neat or in your favorite cocktail.`;
+    data.description = buildFallbackDescriptionHtml(data);
   }
+
+  // Short description is new; default to first sentence of the story paragraph (or title)
+  if (!data.short_description || typeof data.short_description !== "string") {
+    data.short_description = "";
+  } else {
+    data.short_description = data.short_description.trim().slice(0, 140);
+  }
+  if (!data.short_description) {
+    const firstP = String(data.description || "").match(/<p>([\s\S]*?)<\/p>/i)?.[1] || "";
+    data.short_description = stripTagsForShort(firstP).slice(0, 140) || data.title || "";
+  }
+
+  // Distillery name new
+  data.distillery_name = String(data.distillery_name || "").trim();
+
+  // Mash bill new
+  data.mash_bill = String(data.mash_bill || "").trim();
 
   // Flatten tasting notes if nested
   if (data.tasting_notes) {
@@ -744,7 +789,13 @@ REMEMBER: Our customers are collectors who know whiskey. Tell them WHY this bott
   data.country = data.country || "USA";
   data.region = data.region || "Kentucky";
   data.cask_wood = data.cask_wood || ["American White Oak"];
-  data.finish_type = data.finish_type || "None";
+  // finish_type is now an array (Shopify list.single_line_text_field).
+  if (typeof data.finish_type === "string") {
+    data.finish_type = data.finish_type.trim() && data.finish_type.trim().toLowerCase() !== "none"
+      ? [data.finish_type.trim()]
+      : [];
+  }
+  if (!Array.isArray(data.finish_type)) data.finish_type = [];
   data.age_statement = data.age_statement || "NAS";
   data.volume_ml = data.volume_ml || 750;
   data.awards = data.awards || "";
@@ -858,8 +909,214 @@ REMEMBER: Our customers are collectors who know whiskey. Tell them WHY this bott
     throw new Error("AI missing or invalid field: abv");
   }
 
+  // Enforce description length and shape. If oversized, try one tighten-call before truncating.
+  data.description = await enforceDescriptionShape(data.description, data);
+
   console.log("AI STEP COMPLETE: Product data generated");
   console.log("AI OUTPUT:", JSON.stringify(data, null, 2));
 
   return data;
+}
+
+const DESCRIPTION_HTML_MAX = 700;
+
+function stripTagsForShort(html) {
+  return String(html || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function looksLikeStructuredHtml(html) {
+  if (!html) return false;
+  const h = String(html);
+  return /<p>[\s\S]*?<\/p>/i.test(h) && /<ul>[\s\S]*?<\/ul>/i.test(h);
+}
+
+function buildFallbackDescriptionHtml(data) {
+  const proof = (() => {
+    const m = String(data.abv || "").match(/(\d+(?:\.\d+)?)/);
+    if (!m) return "—";
+    const abv = Number(m[1]);
+    if (!Number.isFinite(abv)) return "—";
+    return `${Math.round(abv * 2)} proof`;
+  })();
+  const mashLabel = data.mash_bill
+    ? data.mash_bill.replace(/_/g, " ").replace(/\b(\w)/g, c => c.toUpperCase())
+    : "—";
+  const finish = Array.isArray(data.finish_type) && data.finish_type.length
+    ? data.finish_type.join(", ")
+    : "Traditional oak";
+  const distillery = data.distillery_name
+    ? `${data.distillery_name}${data.region ? `, ${data.region}` : ""}`
+    : (data.vendor && data.region ? `${data.vendor}, ${data.region}` : (data.vendor || "—"));
+  const allocation = data.limited_time_offer ? "Limited release" : "Year-round";
+  const hook = data.short_description
+    || `${data.title || "This bottle"} — a ${data.sub_type || "whiskey"} worth a place on the shelf.`;
+  return [
+    `<p>${escapeHtml(hook)}</p>`,
+    "<ul>",
+    `<li><strong>Age:</strong> ${escapeHtml(data.age_statement || "NAS")}</li>`,
+    `<li><strong>Proof:</strong> ${escapeHtml(proof)}</li>`,
+    `<li><strong>Mash Bill:</strong> ${escapeHtml(mashLabel)}</li>`,
+    `<li><strong>Finish:</strong> ${escapeHtml(finish)}</li>`,
+    `<li><strong>Distillery:</strong> ${escapeHtml(distillery)}</li>`,
+    `<li><strong>Allocation:</strong> ${escapeHtml(allocation)}</li>`,
+    "</ul>"
+  ].join("");
+}
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function truncateHtmlToLimit(html, limit) {
+  if (!html || html.length <= limit) return html;
+  // Try cutting at the last </li> within budget; reattach </ul>.
+  const closeUl = html.lastIndexOf("</ul>");
+  const truncatable = closeUl > 0 ? html.slice(0, closeUl) : html;
+  const lastLi = truncatable.lastIndexOf("</li>");
+  if (lastLi > 0 && lastLi + 5 <= limit) {
+    return truncatable.slice(0, lastLi + 5) + "</ul>";
+  }
+  // Fall back to brute truncation at the limit, then close any open tags conservatively.
+  return html.slice(0, limit - 5) + "</ul>";
+}
+
+async function enforceDescriptionShape(html, data) {
+  if (looksLikeStructuredHtml(html) && html.length <= DESCRIPTION_HTML_MAX) return html;
+
+  if (looksLikeStructuredHtml(html) && html.length > DESCRIPTION_HTML_MAX) {
+    // Single tighten retry, then hard truncate.
+    try {
+      const resp = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0.2,
+        max_tokens: 350,
+        messages: [
+          {
+            role: "system",
+            content: `Tighten the HTML below to ≤${DESCRIPTION_HTML_MAX} characters total. Preserve the exact <p>...</p><ul><li>...</li>...</ul> structure and every <li> row. Return only the HTML.`
+          },
+          { role: "user", content: html }
+        ]
+      });
+      const tightened = resp?.choices?.[0]?.message?.content?.trim() || "";
+      if (looksLikeStructuredHtml(tightened) && tightened.length <= DESCRIPTION_HTML_MAX) {
+        return tightened;
+      }
+      return truncateHtmlToLimit(tightened || html, DESCRIPTION_HTML_MAX);
+    } catch (err) {
+      console.warn("AI: tighten-description retry failed:", err?.message || String(err));
+      return truncateHtmlToLimit(html, DESCRIPTION_HTML_MAX);
+    }
+  }
+
+  // Not structured at all — synthesize a structured fallback from the data we have.
+  return buildFallbackDescriptionHtml(data);
+}
+
+/**
+ * Regenerate description + short_description for an EXISTING product using its
+ * already-saved metafields and (optionally) fresh web research.
+ * Does not call the vision model — we trust the saved tasting notes / metafields.
+ */
+export async function regenerateDescription({ title, factSheet, webResearch, userNotes, choicesBlock = "" } = {}) {
+  if (!title) throw new Error("regenerateDescription requires title");
+
+  const system = `
+You are an expert whiskey copywriter for The Whiskey Library. Rewrite an existing product description using the supplied fact sheet.
+
+## DESCRIPTION FORMAT (STRICT — short blurb + bullet highlights, ≤700 chars TOTAL)
+Return JSON with TWO fields:
+
+"short_description":  ONE plain-text sentence ≤140 chars, the hook.
+"description":        HTML in this exact structure (≤700 chars total HTML):
+
+<p>{2–3 sentence story paragraph. Specific facts only. No "crafted with care" or "exceptional quality".}</p>
+<ul>
+  <li><strong>Age:</strong> {age_statement or "NAS"}</li>
+  <li><strong>Proof:</strong> {proof or "—"}</li>
+  <li><strong>Mash Bill:</strong> {mash_bill description or "—"}</li>
+  <li><strong>Finish:</strong> {finish or "Traditional oak"}</li>
+  <li><strong>Distillery:</strong> {distillery + state or "—"}</li>
+  <li><strong>Allocation:</strong> {"Limited release" if limited else "Year-round"}</li>
+</ul>
+
+Rules:
+- Total HTML length ≤ 700 characters. Count whole HTML (tags included).
+- The <p> must end on a complete sentence.
+- Every <li> must be present even if "—". Keeps layout stable.
+- Do NOT invent flavors or facts that aren't in the fact sheet or web research.
+- Plain text in short_description; no HTML tags.
+
+${choicesBlock || ""}
+`;
+
+  const factSheetText = JSON.stringify(factSheet || {}, null, 2);
+  const webContext = webResearch?.summary || webResearch?.tastingNotesSummary
+    ? `\n\n## WEB RESEARCH\n${webResearch.summary || ""}\n${webResearch.tastingNotesSummary || ""}`
+    : "";
+  const notesText = userNotes ? `\n\n## USER NOTES (override / extra facts)\n${userNotes}` : "";
+
+  const user = `
+Title: ${title}
+
+Fact sheet (from saved Shopify metafields):
+${factSheetText}
+${webContext}
+${notesText}
+
+Return JSON: { "short_description": "...", "description": "<p>...</p><ul>...</ul>" }
+`;
+
+  const resp = await openai.chat.completions.create({
+    model: "gpt-4o",
+    temperature: 0.3,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user }
+    ],
+    response_format: { type: "json_object" }
+  });
+
+  let parsed = {};
+  try {
+    parsed = JSON.parse(resp?.choices?.[0]?.message?.content || "{}");
+  } catch {
+    parsed = {};
+  }
+
+  let description = String(parsed.description || "").trim();
+  let short = String(parsed.short_description || "").trim().slice(0, 140);
+
+  if (!looksLikeStructuredHtml(description)) {
+    description = buildFallbackDescriptionHtml({
+      title,
+      vendor: factSheet?.vendor,
+      region: factSheet?.region,
+      age_statement: factSheet?.age_statement,
+      sub_type: factSheet?.sub_type,
+      mash_bill: factSheet?.mash_bill,
+      finish_type: factSheet?.finish_type,
+      distillery_name: factSheet?.distillery_name,
+      abv: factSheet?.abv,
+      limited_time_offer: factSheet?.limited_time_offer,
+      short_description: short
+    });
+  } else if (description.length > DESCRIPTION_HTML_MAX) {
+    description = await enforceDescriptionShape(description, { title, ...factSheet, short_description: short });
+  }
+
+  if (!short) {
+    short = stripTagsForShort((description.match(/<p>([\s\S]*?)<\/p>/i) || [, ""])[1]).slice(0, 140);
+  }
+
+  return { short_description: short, description };
 }

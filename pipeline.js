@@ -5,7 +5,10 @@ import { searchWhiskeyInfo, searchTastingNotes } from "./search.js";
 import { extractLabelSignals, identifyBottleForSearch } from "./ai.js";
 import { buildTastingPriors } from "./tasting-priors.js";
 import { generateTastingCardAsync } from "./tasting-card.js";
+import { loadChoices, coerceToChoice, choicesPromptBlock } from "./shopify-choices.js";
 import fetch from "node-fetch";
+
+const MASH_BILL_CHOICES = ["traditional_bourbon", "high_rye_bourbon", "wheated_bourbon", "four_grain", "high_corn"];
 
 /**
  * Main pipeline:
@@ -172,12 +175,23 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
       signals ? `\n\nLABEL SIGNALS (detected): ${JSON.stringify({ store_pick: signals.store_pick, single_barrel: signals.single_barrel, abv: signals.abv, proof: signals.proof, evidence: signals.evidence })}` : ""
     ].join("");
 
+    // Load live Shopify metafield choices once per process; injected into the AI prompt so
+    // the model can only pick from the canonical lists. Silently no-ops if Shopify is down.
+    let choicesBlock = "";
+    try {
+      await loadChoices();
+      choicesBlock = choicesPromptBlock();
+    } catch (cErr) {
+      console.warn("PIPELINE: failed to load Shopify choices:", cErr?.message || String(cErr));
+    }
+
     const aiData = await generateProductData({
       notes: notesWithSignals,
       imageUrl: finalImageUrl,
       webResearch,
       tastingPriors,
-      tastingMode
+      tastingMode,
+      choicesBlock
     });
 
     // Merge signals into aiData if they are higher confidence
@@ -249,6 +263,9 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
     (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H7',location:'pipeline.js:43',message:'Preparing Shopify payload',data:{aiVendor:aiData?.vendor||null,aiProductType:aiData?.product_type||null,metafieldKeys:['nose','palate','finish','sub_type','location_','state','cask_wood','finish_type','age_statement','alcohol_by_volume','finished','store_pick','cask_strength','single_barrel','limited_boolean'],imageUrlIsDataUrl:typeof finalImageUrl==='string'&&finalImageUrl.startsWith('data:')},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
     // #endregion
 
+    // Validate and coerce metafields against the live Shopify choices and cross-field rules.
+    validateAndCoerceMetafields(aiData, signals);
+
     const product = await createDraftProduct({
       title: aiData.title,
       description: aiData.description,
@@ -267,10 +284,15 @@ export async function runPipeline({ image, cost, price, abv, proof, quantity, ba
         mf("sub_type", aiData.sub_type),
         // NOTE: Shopify definition expects list.single_line_text_field
         mfList("location_", aiData.country),
+        mf("country", aiData.country || ""),
         mf("state", aiData.region),
         mfList("cask_wood", aiData.cask_wood),
         // NOTE: Shopify definition expects list.single_line_text_field
         mfList("finish_type", aiData.finish_type),
+        // mash_bill is a list.single_line_text_field on the Shopify side with validated choices.
+        mfList("mash_bill", aiData.mash_bill ? [aiData.mash_bill] : []),
+        mf("distillery_name", aiData.distillery_name || ""),
+        mf("short_description", aiData.short_description || ""),
         mf("age_statement", aiData.age_statement),
         // Only set ABV when confidently known; otherwise omit it and ask the user after draft creation.
         ...(String(aiData.abv || "").trim() ? [mf("alcohol_by_volume", aiData.abv)] : []),
@@ -367,6 +389,121 @@ function mb(key, value) {
     value: String(Boolean(value)),
     type: "boolean"
   };
+}
+
+/**
+ * Validate AI metafield values against Shopify's defined choices and apply cross-field
+ * consistency rules. Mutates `aiData` in place.
+ *
+ * Root cause this fixes: AI was emitting values like finish_type=["Traditional Oak Aging"]
+ * (not a valid choice) and finished=false WITH a non-empty finish_type (contradiction).
+ * Storefront filter logic then renders the bottle as "finished".
+ */
+export function validateAndCoerceMetafields(aiData, signals = null) {
+  // 1. List metafields → coerce each entry to a valid choice, drop unmatchable values.
+  aiData.finish_type = coerceList("finish_type", aiData.finish_type);
+  aiData.cask_wood = coerceList("cask_wood", aiData.cask_wood);
+  // country/location_ list — coerce against location_ choices but keep as a single string for downstream code.
+  const coercedCountry = coerceToChoice("location_", aiData.country || "");
+  if (coercedCountry) aiData.country = coercedCountry;
+
+  // 2. mash_bill must be one of the 5 known tokens (or empty). Non-bourbon sub_types force empty.
+  if (aiData.mash_bill && !MASH_BILL_CHOICES.includes(aiData.mash_bill)) {
+    const coerced = coerceToChoice("mash_bill", aiData.mash_bill);
+    aiData.mash_bill = MASH_BILL_CHOICES.includes(coerced) ? coerced : "";
+  }
+  if (!/bourbon/i.test(String(aiData.sub_type || ""))) {
+    aiData.mash_bill = "";
+  }
+
+  // 3. Cross-field consistency.
+
+  // 3a. `finished` ↔ `finish_type` MUST agree. This is the New Louisville bug.
+  if (!aiData.finished) {
+    aiData.finish_type = [];
+  } else if (aiData.finish_type.length === 0) {
+    // AI said finished=true but didn't give a valid finish type — coerce both to a safe default.
+    // We prefer to flip `finished` off (no evidence) than invent a finish type.
+    aiData.finished = false;
+  }
+
+  // 3b. `cask_strength` requires ≥50% ABV.
+  const abvNum = parseAbvNumber(aiData.abv);
+  if (aiData.cask_strength && Number.isFinite(abvNum) && abvNum > 0 && abvNum < 50) {
+    aiData.cask_strength = false;
+  }
+
+  // 3c. `single_barrel` requires label evidence.
+  if (aiData.single_barrel && !hasSingleBarrelEvidence(aiData, signals)) {
+    aiData.single_barrel = false;
+  }
+
+  // 3d. `store_pick` requires label evidence.
+  if (aiData.store_pick && !hasStorePickEvidence(aiData, signals)) {
+    aiData.store_pick = false;
+  }
+
+  // 3e. `bottled_in_bond` requires explicit label text (BiB / Bottled in Bond).
+  if (aiData.bottled_in_bond && !hasBibEvidence(aiData, signals)) {
+    aiData.bottled_in_bond = false;
+  }
+
+  return aiData;
+}
+
+function coerceList(key, value) {
+  const arr = Array.isArray(value)
+    ? value
+    : (typeof value === "string" && value.trim()
+        ? value.split(",").map(s => s.trim()).filter(Boolean)
+        : []);
+  const out = [];
+  const seen = new Set();
+  for (const v of arr) {
+    const coerced = coerceToChoice(key, v);
+    if (coerced && !seen.has(coerced)) {
+      seen.add(coerced);
+      out.push(coerced);
+    }
+  }
+  return out;
+}
+
+function parseAbvNumber(abvLike) {
+  const m = String(abvLike || "").match(/(\d+(?:\.\d+)?)/);
+  return m ? Number(m[1]) : NaN;
+}
+
+function evidenceText(aiData, signals) {
+  const lines = [];
+  if (aiData?.title) lines.push(aiData.title);
+  if (aiData?.description) lines.push(String(aiData.description).replace(/<[^>]+>/g, " "));
+  if (aiData?.evidence) {
+    for (const arr of Object.values(aiData.evidence)) {
+      if (Array.isArray(arr)) lines.push(arr.join(" "));
+    }
+  }
+  if (signals?.evidence?.length) lines.push(signals.evidence.join(" "));
+  return lines.join(" \n ").toLowerCase();
+}
+
+function hasSingleBarrelEvidence(aiData, signals) {
+  const text = evidenceText(aiData, signals);
+  if (/single\s*barrel|single\s*cask|barrel\s*no\.?\s*\d|barrel\s*#?\s*\d/.test(text)) return true;
+  if (signals?.single_barrel && Number(signals?.confidence?.single_barrel || 0) >= 0.5) return true;
+  return false;
+}
+
+function hasStorePickEvidence(aiData, signals) {
+  const text = evidenceText(aiData, signals);
+  if (/store\s*pick|private\s*selection|barrel\s*pick|whiskey\s*library|store\s*selection/.test(text)) return true;
+  if (signals?.store_pick && Number(signals?.confidence?.store_pick || 0) >= 0.5) return true;
+  return false;
+}
+
+function hasBibEvidence(aiData, signals) {
+  const text = evidenceText(aiData, signals);
+  return /bottled\s*in\s*bond|\bbib\b/i.test(text);
 }
 
 /**
