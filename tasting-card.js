@@ -193,9 +193,6 @@ async function prepareProductData(product) {
   
   // Strip HTML from description and optionally condense
   let description = stripHtml(product.descriptionHtml);
-  // #region agent log
-  console.log("TASTING_CARD_DEBUG: BEFORE condense", { titleLen: product.title.length, descLen: description.length, noseLen: nose.length, palateLen: palate.length, finishLen: finish.length });
-  // #endregion
   
   description = await condenseTastingCardDescription({
     title: product.title,
@@ -225,9 +222,6 @@ async function prepareProductData(product) {
     console.log("TASTING_CARD_DEBUG: Truncated title from", product.title.length, "to", title.length, "chars");
   }
   
-  // #region agent log
-  console.log("TASTING_CARD_DEBUG: AFTER condense", { titleLen: title.length, descLen: description.length, noseLen: nose.length, palateLen: palate.length, finishLen: finish.length });
-  // #endregion
   
   const abvParsed = parseAbvProof(abv);
   

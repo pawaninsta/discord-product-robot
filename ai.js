@@ -14,18 +14,12 @@ const TASTING_NOTE_LIMITS = { min: 50, max: 100, target: 90 };  // ~4 lines at 2
  * Only condenses if text exceeds max limit. Targets max to fill available space.
  */
 export async function condenseTastingCardDescription({ title, description }) {
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ai.js:condenseTastingCardDescription',message:'Entry',data:{descLen:description?.length||0,maxLimit:DESCRIPTION_LIMITS.max,willCondense:(description?.length||0)>DESCRIPTION_LIMITS.max},hypothesisId:'H2',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-  // #endregion
   if (!description || description.trim().length === 0) {
     return "";
   }
 
   // If already fits within max, return as-is (no API call needed)
   if (description.length <= DESCRIPTION_LIMITS.max) {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ai.js:condenseTastingCardDescription',message:'Skipping - already fits',data:{descLen:description.length},hypothesisId:'H2',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-    // #endregion
     return description;
   }
 
@@ -69,9 +63,6 @@ Condense this to approximately ${DESCRIPTION_LIMITS.max} characters (4-5 sentenc
 
     const condensed = response?.choices?.[0]?.message?.content?.trim();
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ai.js:condenseTastingCardDescription',message:'AI returned',data:{condensedLen:condensed?.length||0,maxLimit:DESCRIPTION_LIMITS.max,overLimit:(condensed?.length||0)>DESCRIPTION_LIMITS.max},hypothesisId:'H2',timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-    // #endregion
     
     if (!condensed) {
       // Fallback: truncate original
@@ -347,9 +338,6 @@ export async function generateProductData({ notes, imageUrl, webResearch, tastin
   // tastingMode/tastingPriors are optional and may be undefined
   // (kept out of the loud logs to avoid huge payload spam)
 
-  // #region agent log
-  (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4',location:'ai.js:16',message:'generateProductData entry',data:{hasImageUrl:Boolean(imageUrl),imageUrlHost:(()=>{try{return new URL(imageUrl).host;}catch{return null;}})(),notesLen:(notes||"").length,hasWebResearch:Boolean(webResearch?.summary||webResearch?.tastingNotesSummary||webResearch?.status),webResearchStatus:webResearch?.status||null},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
-  // #endregion
 
   if (!imageUrl) {
     throw new Error("generateProductData requires imageUrl");
@@ -665,9 +653,6 @@ REMEMBER: Our customers are collectors who know whiskey. Tell them WHY this bott
     throw new Error("AI returned invalid JSON");
   }
 
-  // #region agent log
-  (()=>{const payload={sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H5',location:'ai.js:244',message:'AI parsed JSON top-level fields',data:{keys:Object.keys(data||{}).slice(0,40),vendor:data?.vendor||null,product_type:data?.product_type||null,sub_type:data?.sub_type||null,country:data?.country||null,region:data?.region||null,noseIsArray:Array.isArray(data?.nose),palateIsArray:Array.isArray(data?.palate),finishIsArray:Array.isArray(data?.finish),store_pick:data?.store_pick,single_barrel:data?.single_barrel},timestamp:Date.now()};console.log("AGENT_LOG",JSON.stringify(payload));globalThis.fetch?.('http://127.0.0.1:7242/ingest/5a136f99-0f58-49f0-8eb8-c368792b2230',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});})();
-  // #endregion
 
   // -------------------------
   // NORMALIZE AI SCHEMA
