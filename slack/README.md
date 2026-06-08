@@ -40,6 +40,14 @@ shortcut** (the most robust way to bind a real uploaded file to structured param
 `/tastingcard <admin url>` generates the card and uploads the PNG to Slack via
 `files.uploadV2` (threaded under an acknowledgement message).
 
+**Update an existing product (image recognition):** upload the arrived bottle's
+photo, then run **⋯ More actions → Update Product** (message shortcut, callback_id
+`update_product_shortcut`). The modal asks how to identify the existing product
+(handle / SKU / barcode / product ID-or-URL / title) and an optional "regenerate
+studio image" checkbox, then calls `runUpdatePipeline`. It **never creates a new
+product** and **never changes price or inventory**. `/update-product` is a helper
+command that explains the flow.
+
 ---
 
 ## The private-file problem (important)
@@ -83,10 +91,10 @@ if you only use @-mention you can drop `commands`. Keep `files:read`/`files:writ
 
 Enable in the app config:
 
-- **Interactivity & Shortcuts** — turn on, and add a **message shortcut**:
-  - Name: `Create Product`
-  - Callback ID: `create_product_shortcut`
-- **Slash Commands** — create `/create-product` and `/tastingcard`.
+- **Interactivity & Shortcuts** — turn on, and add two **message shortcuts**:
+  - Name: `Create Product` · Callback ID: `create_product_shortcut`
+  - Name: `Update Product` · Callback ID: `update_product_shortcut`
+- **Slash Commands** — create `/create-product`, `/update-product`, and `/tastingcard`.
 - **Event Subscriptions** — subscribe to bot events: `app_mention`.
   (In Socket Mode you do not need a public Request URL.)
 
