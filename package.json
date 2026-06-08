@@ -5,10 +5,12 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "start:all": "node index.js & node tasting-card-server.js"
+    "start:all": "node index.js & node tasting-card-server.js",
+    "start:slack": "node slack-index.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
+    "@slack/bolt": "^4.2.0",
     "discord.js": "^14.14.1",
     "express": "^4.21.0",
     "form-data": "^4.0.5",
