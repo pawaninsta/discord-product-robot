@@ -1,11 +1,36 @@
 import { Client, GatewayIntentBits, AttachmentBuilder } from "discord.js";
 import { runPipeline } from "./pipeline.js";
+import { runUpdatePipeline } from "./update-pipeline.js";
 import { generateTastingCard } from "./tasting-card.js";
 import { handleDevCommand, handleDevReviseCommand, handleDevApproveCommand } from "./dev-command.js";
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
+
+/**
+ * Build a findProduct-style reference object from a (type, value) pair.
+ * For the "id" type we tolerate a raw numeric id, a gid://, or an admin URL
+ * like https://.../products/123456 and extract the numeric id.
+ */
+function buildProductRef(type, value) {
+  const v = String(value ?? "").trim();
+  if (!v) return {};
+  switch (type) {
+    case "id": {
+      if (v.startsWith("gid://")) return { idOrGid: v };
+      const fromUrl = v.match(/products\/(\d+)/);
+      if (fromUrl) return { idOrGid: fromUrl[1] };
+      const digits = v.match(/\d{3,}/);
+      return { idOrGid: digits ? digits[0] : v };
+    }
+    case "sku": return { sku: v };
+    case "barcode": return { barcode: v };
+    case "title": return { title: v };
+    case "handle":
+    default: return { handle: v };
+  }
+}
 
 client.once("ready", () => {
   console.log("🤖 Robot is online");
@@ -192,6 +217,110 @@ client.on("interactionCreate", async interaction => {
         await interaction.editReply({ content: "❌ Failed. Check the thread for details." });
       } else {
         // Fallback: if no thread, post to main channel
+        const channel = interaction.channel;
+        if (channel?.send) await channel.send({ content: lines.join("\n") });
+        await interaction.editReply({ content: "❌ Failed. (I posted details in the channel.)" });
+      }
+    }
+  }
+
+  if (interaction.commandName === "update-product") {
+    await interaction.reply({ content: "🧪 Starting… creating a log thread…", ephemeral: true });
+
+    const image = interaction.options.getAttachment("image");
+    const referenceType = interaction.options.getString("reference_type");
+    const reference = interaction.options.getString("reference");
+    const abv = interaction.options.getNumber("abv");
+    const proof = interaction.options.getNumber("proof");
+    const regenerateImage = interaction.options.getBoolean("regenerate_image") || false;
+    const referenceLink = interaction.options.getString("reference_link");
+    const notes = interaction.options.getString("notes") || "";
+
+    const productRef = buildProductRef(referenceType, reference);
+
+    let logThread = null;
+    try {
+      const channel = interaction.channel;
+      if (channel && typeof channel === "object" && "threads" in channel && channel.threads?.create) {
+        const stamp = new Date().toISOString().replace("T", " ").slice(0, 16);
+        const name = safeThreadName(`update-product • ${interaction.user.username} • ${stamp}`);
+        logThread = await channel.threads.create({
+          name,
+          autoArchiveDuration: 60,
+          reason: `update-product run by ${interaction.user.tag}`
+        });
+
+        await logThread.send({
+          content: `🧪 Started by ${interaction.user.username}. Logs for this run will be posted in this thread.`
+        });
+      }
+    } catch (e) {
+      console.warn("THREAD: failed to create log thread:", e?.message || String(e));
+    }
+
+    if (logThread) {
+      await interaction.editReply({
+        content: `🧪 Working on it… Logs will be posted in ${logThread}. I'll ping you in the thread when it's done.`
+      });
+    } else {
+      await interaction.editReply({
+        content: "🧪 Working on it… (I couldn't create a log thread; falling back to the webhook logger if configured.)"
+      });
+    }
+
+    const result = await runUpdatePipeline({
+      productRef,
+      image,
+      abv,
+      proof,
+      referenceLink,
+      notes,
+      regenerateImage,
+      send: logThread ? makeDiscordSender(logThread) : undefined
+    });
+
+    const mention = `<@${interaction.user.id}>`;
+
+    if (result?.ok) {
+      const productTitle = String(result?.productTitle || "").trim();
+
+      if (logThread && productTitle) {
+        try {
+          await logThread.setName(safeThreadName(productTitle));
+        } catch (e) {
+          console.warn("THREAD: failed to rename thread:", e?.message || String(e));
+        }
+      }
+
+      const lines = [
+        `${mention} ✅ Product update finished.`,
+        productTitle ? `**Product:** ${productTitle}` : "",
+        result.matchedBy ? `Matched by: ${result.matchedBy}` : "",
+        result.adminUrl ? `Admin: ${result.adminUrl}` : "",
+        result.needsAbv ? "⚠️ ABV/proof wasn't found with confidence, so **Alcohol by Volume** was left unchanged." : "",
+        result.needsVendor ? `@everyone ⚠️ Vendor **"${result.unmatchedVendor}"** was not found in Shopify; the product's vendor was left unchanged. Please verify.` : ""
+      ].filter(Boolean);
+
+      if (logThread) {
+        await logThread.send({ content: lines.join("\n") });
+        await interaction.editReply({ content: "✅ Done. Check the thread for details." });
+      } else {
+        const channel = interaction.channel;
+        if (channel?.send) await channel.send({ content: lines.join("\n") });
+        await interaction.editReply({ content: "✅ Done. (I posted the result in the channel.)" });
+      }
+    } else {
+      // runUpdatePipeline already posts detailed status (not-found / ambiguous / candidates)
+      // to the thread via `send`; here we just post the final ping.
+      const errText = result?.error ? String(result.error) : "Unknown error";
+      const lines = [
+        `${mention} ❌ Product update failed: ${errText}`
+      ].filter(Boolean);
+
+      if (logThread) {
+        await logThread.send({ content: lines.join("\n") });
+        await interaction.editReply({ content: "❌ Failed. Check the thread for details." });
+      } else {
         const channel = interaction.channel;
         if (channel?.send) await channel.send({ content: lines.join("\n") });
         await interaction.editReply({ content: "❌ Failed. (I posted details in the channel.)" });

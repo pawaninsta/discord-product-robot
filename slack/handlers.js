@@ -1,4 +1,5 @@
 import { runPipeline } from "../pipeline.js";
+import { runUpdatePipeline } from "../update-pipeline.js";
 import { generateTastingCard } from "../tasting-card.js";
 import { slackFileToImage } from "./slack-file.js";
 import { makeSlackSender } from "./sender.js";
@@ -36,6 +37,8 @@ import { makeSlackSender } from "./sender.js";
 
 const SHORTCUT_CALLBACK_ID = "create_product_shortcut";
 const MODAL_CALLBACK_ID = "create_product_modal";
+const UPDATE_SHORTCUT_CALLBACK_ID = "update_product_shortcut";
+const UPDATE_MODAL_CALLBACK_ID = "update_product_modal";
 
 function botToken() {
   return process.env.SLACK_BOT_TOKEN;
@@ -282,6 +285,188 @@ async function runTastingCard({ client, channel, thread_ts, userId, adminUrl }) 
   }
 }
 
+/* ───────────────────────────── update-product flow ───────────────────────── */
+
+/**
+ * Build a findProduct-style reference object from a (type, value) pair.
+ * For the "id" type we tolerate a raw numeric id, a gid://, or an admin URL
+ * like https://.../products/123456 and extract the numeric id.
+ */
+function buildProductRef(type, value) {
+  const v = String(value ?? "").trim();
+  if (!v) return {};
+  switch (type) {
+    case "id": {
+      if (v.startsWith("gid://")) return { idOrGid: v };
+      const fromUrl = v.match(/products\/(\d+)/);
+      if (fromUrl) return { idOrGid: fromUrl[1] };
+      const digits = v.match(/\d{3,}/);
+      return { idOrGid: digits ? digits[0] : v };
+    }
+    case "sku": return { sku: v };
+    case "barcode": return { barcode: v };
+    case "title": return { title: v };
+    case "handle":
+    default: return { handle: v };
+  }
+}
+
+function buildUpdateProductModal({ channel, message_ts, fileId }) {
+  const privateMetadata = JSON.stringify({ channel, message_ts, fileId });
+
+  return {
+    type: "modal",
+    callback_id: UPDATE_MODAL_CALLBACK_ID,
+    private_metadata: privateMetadata,
+    title: { type: "plain_text", text: "Update Product" },
+    submit: { type: "plain_text", text: "Update" },
+    close: { type: "plain_text", text: "Cancel" },
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "Reading the bottle image on the selected message to fill in / refresh an *existing* product. No new product is created and price/inventory are untouched."
+        }
+      },
+      {
+        type: "input",
+        block_id: "reference_type",
+        label: { type: "plain_text", text: "Identify the existing product by" },
+        element: {
+          type: "static_select",
+          action_id: "value",
+          initial_option: { text: { type: "plain_text", text: "Handle" }, value: "handle" },
+          options: [
+            { text: { type: "plain_text", text: "Handle" }, value: "handle" },
+            { text: { type: "plain_text", text: "SKU" }, value: "sku" },
+            { text: { type: "plain_text", text: "Barcode / UPC" }, value: "barcode" },
+            { text: { type: "plain_text", text: "Product ID or admin URL" }, value: "id" },
+            { text: { type: "plain_text", text: "Title (may match multiple)" }, value: "title" }
+          ]
+        }
+      },
+      {
+        type: "input",
+        block_id: "reference",
+        label: { type: "plain_text", text: "Reference value" },
+        element: {
+          type: "plain_text_input",
+          action_id: "value",
+          placeholder: { type: "plain_text", text: "e.g. eagle-rare-17 or 088004021443" }
+        }
+      },
+      {
+        type: "input",
+        block_id: "abv",
+        optional: true,
+        label: { type: "plain_text", text: "ABV % (optional)" },
+        element: { type: "plain_text_input", action_id: "value", placeholder: { type: "plain_text", text: "e.g. 53.5" } }
+      },
+      {
+        type: "input",
+        block_id: "proof",
+        optional: true,
+        label: { type: "plain_text", text: "Proof (optional)" },
+        element: { type: "plain_text_input", action_id: "value", placeholder: { type: "plain_text", text: "e.g. 107 (ABV = proof/2)" } }
+      },
+      {
+        type: "input",
+        block_id: "reference_link",
+        optional: true,
+        label: { type: "plain_text", text: "Reference link (optional)" },
+        element: { type: "plain_text_input", action_id: "value", placeholder: { type: "plain_text", text: "distillery / distributor URL" } }
+      },
+      {
+        type: "input",
+        block_id: "notes",
+        optional: true,
+        label: { type: "plain_text", text: "Notes (optional)" },
+        element: { type: "plain_text_input", action_id: "value", multiline: true, placeholder: { type: "plain_text", text: "store pick, barrel #, etc." } }
+      },
+      {
+        type: "input",
+        block_id: "regenerate_image",
+        optional: true,
+        label: { type: "plain_text", text: "Studio image" },
+        element: {
+          type: "checkboxes",
+          action_id: "value",
+          options: [
+            { text: { type: "plain_text", text: "Also generate a studio image and attach it" }, value: "yes" }
+          ]
+        }
+      }
+    ]
+  };
+}
+
+function readUpdateModalValues(view) {
+  const v = view?.state?.values || {};
+  const text = (block) => v?.[block]?.value?.value ?? "";
+  const referenceType = v?.reference_type?.value?.selected_option?.value || "handle";
+  const regenerateImage = Array.isArray(v?.regenerate_image?.value?.selected_options)
+    && v.regenerate_image.value.selected_options.length > 0;
+  return {
+    referenceType,
+    reference: (text("reference") || "").trim(),
+    abv: parseNumber(text("abv")),
+    proof: parseNumber(text("proof")),
+    referenceLink: (text("reference_link") || "").trim() || null,
+    notes: (text("notes") || "").trim(),
+    regenerateImage
+  };
+}
+
+/**
+ * Post the update completion summary, threaded under the run. runUpdatePipeline
+ * already streams detailed status (not-found / ambiguous candidate list) via the
+ * sender, so on failure we just post the final ping.
+ */
+async function postUpdateCompletion({ client, channel, thread_ts, userId, result }) {
+  const mention = userId ? `<@${userId}>` : "";
+  if (result?.ok) {
+    const productTitle = String(result?.productTitle || "").trim();
+    const lines = [
+      `${mention} :white_check_mark: Product update finished.`.trim(),
+      productTitle ? `*Product:* ${productTitle}` : "",
+      result.matchedBy ? `Matched by: ${result.matchedBy}` : "",
+      result.adminUrl ? `Admin: ${result.adminUrl}` : "",
+      result.needsAbv ? ":warning: ABV/proof wasn't found with confidence, so *Alcohol by Volume* was left unchanged." : "",
+      result.needsVendor ? `:warning: Vendor *"${result.unmatchedVendor}"* was not found in Shopify; vendor left unchanged. Please verify.` : ""
+    ].filter(Boolean);
+    await client.chat.postMessage({ channel, thread_ts, text: lines.join("\n"), unfurl_links: false, unfurl_media: false });
+  } else {
+    const errText = result?.error ? String(result.error) : "Unknown error";
+    await client.chat.postMessage({ channel, thread_ts, text: `${mention} :x: Product update failed: ${errText}`.trim() });
+  }
+}
+
+async function runUpdateProduct({ client, channel, thread_ts, userId, file, values }) {
+  const send = makeSlackSender({ client, channel, thread_ts });
+
+  let image;
+  try {
+    image = await slackFileToImage(file, botToken());
+  } catch (e) {
+    await client.chat.postMessage({ channel, thread_ts, text: `:x: Couldn't read the bottle image: ${e?.message || String(e)}` });
+    return;
+  }
+
+  const result = await runUpdatePipeline({
+    productRef: buildProductRef(values.referenceType, values.reference),
+    image,
+    abv: values.abv,
+    proof: values.proof,
+    referenceLink: values.referenceLink,
+    notes: values.notes,
+    regenerateImage: values.regenerateImage,
+    send
+  });
+
+  await postUpdateCompletion({ client, channel, thread_ts, userId, result });
+}
+
 /* ──────────────────────────── handler registration ───────────────────────── */
 
 /**
@@ -463,15 +648,108 @@ export function registerHandlers(app) {
     });
   });
 
-  /* ── UPDATE-product registration point (placeholder) ─────────────────────────
-   * A teammate is building `runUpdatePipeline` in update-pipeline.js. When ready,
-   * register its Slack trigger here (e.g. a `/update-product` command or an
-   * `update_product_shortcut` message shortcut) following the same pattern as
-   * create-product: collect params via modal, resolve the image with
-   * slackFileToImage(), build a threaded sender with makeSlackSender(), then call
-   * runUpdatePipeline({ ... }). Do NOT import update-pipeline.js until it exists.
-   *
-   *   import { runUpdatePipeline } from "../update-pipeline.js";
-   *   app.command("/update-product", async (ctx) => { ... });
-   * ────────────────────────────────────────────────────────────────────────── */
+  /* /update-product — helper: explains the shortcut-based flow. */
+  app.command("/update-product", async ({ ack, respond }) => {
+    await ack();
+    await respond({
+      response_type: "ephemeral",
+      text: [
+        "*Fill in / refresh an existing product from a bottle photo:*",
+        "1. Upload the bottle image to this channel (one image per message).",
+        "2. On that message, open the *⋯ More actions* menu and choose *Update Product*.",
+        "3. Tell me which existing product to update (handle / SKU / barcode / ID), then submit.",
+        "",
+        "_This never creates a new product and never changes price or inventory._"
+      ].join("\n")
+    });
+  });
+
+  /* Message shortcut: opens the update-product modal bound to the message's image. */
+  app.shortcut(UPDATE_SHORTCUT_CALLBACK_ID, async ({ shortcut, ack, client }) => {
+    await ack();
+
+    const channel = shortcut.channel?.id;
+    const message = shortcut.message;
+    const file = firstImageFile(message?.files);
+
+    if (!file) {
+      try {
+        await client.chat.postMessage({
+          channel: shortcut.user?.id,
+          text: ":warning: That message has no image. Upload a bottle photo, then run *Update Product* on the message with the image."
+        });
+      } catch {
+        // best effort
+      }
+      return;
+    }
+
+    await client.views.open({
+      trigger_id: shortcut.trigger_id,
+      view: buildUpdateProductModal({
+        channel,
+        message_ts: message?.ts,
+        fileId: file.id
+      })
+    });
+  });
+
+  /* Update modal submit: resolve the bound image and run the update pipeline. */
+  app.view(UPDATE_MODAL_CALLBACK_ID, async ({ ack, view, body, client }) => {
+    await ack();
+
+    let meta = {};
+    try {
+      meta = JSON.parse(view.private_metadata || "{}");
+    } catch {
+      meta = {};
+    }
+
+    const channel = meta.channel;
+    const thread_ts = meta.message_ts;
+    const userId = body?.user?.id;
+    const values = readUpdateModalValues(view);
+
+    if (!values.reference) {
+      await client.chat.postMessage({ channel, thread_ts, text: ":x: No product reference provided — tell me which existing product to update." });
+      return;
+    }
+
+    // Re-fetch the message to get the file's fresh url_private_download.
+    let file = null;
+    try {
+      const history = await client.conversations.history({
+        channel,
+        latest: meta.message_ts,
+        inclusive: true,
+        limit: 1
+      });
+      const msg = history?.messages?.[0];
+      file =
+        (Array.isArray(msg?.files) && msg.files.find(f => f.id === meta.fileId)) ||
+        firstImageFile(msg?.files);
+    } catch (e) {
+      console.warn("SLACK: conversations.history failed:", e?.message || String(e));
+    }
+
+    if (!file) {
+      try {
+        const info = await client.files.info({ file: meta.fileId });
+        file = info?.file || null;
+      } catch (e) {
+        console.warn("SLACK: files.info failed:", e?.message || String(e));
+      }
+    }
+
+    if (!file) {
+      await client.chat.postMessage({
+        channel,
+        thread_ts,
+        text: ":x: Couldn't find the bottle image on the original message. Please re-upload and try again."
+      });
+      return;
+    }
+
+    await runUpdateProduct({ client, channel, thread_ts, userId, file, values });
+  });
 }

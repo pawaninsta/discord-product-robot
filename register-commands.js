@@ -64,6 +64,68 @@ const commands = [
         .setRequired(false)
     ),
   new SlashCommandBuilder()
+    .setName("update-product")
+    .setDescription("Fill in / refresh an EXISTING product from a bottle photo (no new product, no inventory change)")
+    .addAttachmentOption(option =>
+      option
+        .setName("image")
+        .setDescription("Photo of the arrived bottle to read the label from")
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName("reference_type")
+        .setDescription("How to identify the existing product to update")
+        .setRequired(true)
+        .addChoices(
+          { name: "Handle", value: "handle" },
+          { name: "SKU", value: "sku" },
+          { name: "Barcode / UPC", value: "barcode" },
+          { name: "Product ID or admin URL", value: "id" },
+          { name: "Title (may match multiple)", value: "title" }
+        )
+    )
+    .addStringOption(option =>
+      option
+        .setName("reference")
+        .setDescription("The handle / SKU / barcode / product ID-URL / title that identifies the product")
+        .setRequired(true)
+    )
+    .addNumberOption(option =>
+      option
+        .setName("abv")
+        .setDescription("Optional ABV % (e.g., 53.5)")
+        .setMinValue(0)
+        .setMaxValue(100)
+        .setRequired(false)
+    )
+    .addNumberOption(option =>
+      option
+        .setName("proof")
+        .setDescription("Optional proof (e.g., 107). ABV computed as proof/2.")
+        .setMinValue(0)
+        .setMaxValue(200)
+        .setRequired(false)
+    )
+    .addBooleanOption(option =>
+      option
+        .setName("regenerate_image")
+        .setDescription("Also generate a studio image from the photo and attach it (default: no)")
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName("reference_link")
+        .setDescription("Optional reference link (distillery / distributor listing)")
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName("notes")
+        .setDescription("Optional notes (store pick, barrel #, etc.)")
+        .setRequired(false)
+    ),
+  new SlashCommandBuilder()
     .setName("tastingcard")
     .setDescription("Generate a tasting card for an existing Shopify product")
     .addStringOption(option =>
