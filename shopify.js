@@ -838,3 +838,379 @@ async function publishToAllChannels(productId) {
     // Don't throw - product was still created
   }
 }
+
+// ============================================================================
+// UPDATE FLOW (append-only additions for the /update-product capability)
+// These functions resolve an EXISTING product and update its listing fields.
+// They never create products and never touch price/cost/inventory.
+// ============================================================================
+
+/**
+ * Internal: run a GraphQL request against the Admin API and return parsed JSON.
+ * Throws on top-level GraphQL `errors`.
+ */
+async function _graphql(query, variables) {
+  const res = await fetch(
+    `https://${SHOP}/admin/api/2024-10/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": TOKEN,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ query, variables })
+    }
+  );
+
+  const data = await res.json();
+  if (data.errors) {
+    console.error("SHOPIFY: GraphQL errors:", JSON.stringify(data.errors));
+    throw new Error(`Shopify GraphQL error: ${data.errors[0]?.message || "unknown"}`);
+  }
+  return data;
+}
+
+/**
+ * Internal: shape a raw GraphQL product node into the same summary shape
+ * getProductById returns, plus the first variant's id/sku/barcode.
+ */
+function _shapeProductNode(product) {
+  if (!product) return null;
+
+  const metafields = {};
+  for (const edge of product.metafields?.edges || []) {
+    const node = edge.node;
+    metafields[`${node.namespace}.${node.key}`] = node.value;
+  }
+
+  const firstVariant = product.variants?.edges?.[0]?.node || null;
+
+  return {
+    id: product.id,
+    title: product.title,
+    handle: product.handle,
+    descriptionHtml: product.descriptionHtml,
+    vendor: product.vendor,
+    productType: product.productType,
+    tags: product.tags || [],
+    imageUrl: product.featuredImage?.url,
+    price: firstVariant?.price,
+    variantId: firstVariant?.id || null,
+    sku: firstVariant?.sku || null,
+    barcode: firstVariant?.barcode || null,
+    metafields
+  };
+}
+
+// Fields fetched for every product we resolve in the update flow.
+const _PRODUCT_FIELDS = `
+  id
+  title
+  handle
+  descriptionHtml
+  vendor
+  productType
+  tags
+  featuredImage { url }
+  variants(first: 1) {
+    edges {
+      node {
+        id
+        price
+        sku
+        barcode
+      }
+    }
+  }
+  metafields(namespace: "custom", first: 50) {
+    edges {
+      node {
+        namespace
+        key
+        value
+      }
+    }
+  }
+`;
+
+/**
+ * Resolve an existing product to update. Supports several reference types so the
+ * caller can pick whatever is convenient. Matching is intentionally strict to
+ * AVOID duplicates: we only return a single product when the match is unambiguous.
+ *
+ * @param {object} ref
+ * @param {string} [ref.idOrGid]  numeric id or gid://shopify/Product/...
+ * @param {string} [ref.handle]   product handle (exact)
+ * @param {string} [ref.sku]      variant SKU (exact)
+ * @param {string} [ref.barcode]  variant barcode / UPC (exact)
+ * @param {string} [ref.title]    title search (may be fuzzy)
+ * @returns {Promise<object|null|Array>}
+ *   - object: single match (same shape as getProductById + variantId/sku/barcode)
+ *   - null:   no match found
+ *   - Array:  multiple matches (caller must disambiguate; never auto-pick)
+ */
+export async function findProduct({ idOrGid, handle, sku, barcode, title } = {}) {
+  // 1) Direct id / gid lookup — most precise.
+  if (idOrGid) {
+    try {
+      const gid = String(idOrGid).startsWith("gid://")
+        ? idOrGid
+        : `gid://shopify/Product/${idOrGid}`;
+      const data = await _graphql(
+        `query FindById($id: ID!) { product(id: $id) { ${_PRODUCT_FIELDS} } }`,
+        { id: gid }
+      );
+      return _shapeProductNode(data.data?.product);
+    } catch (err) {
+      console.warn("SHOPIFY: findProduct by id failed:", err?.message || String(err));
+      return null;
+    }
+  }
+
+  // 2) Build a search query for the products(query:...) connection.
+  //    Each branch targets exactly one field so matches stay unambiguous.
+  let searchQuery = "";
+  if (handle) {
+    searchQuery = `handle:${JSON.stringify(String(handle).trim())}`;
+  } else if (sku) {
+    searchQuery = `sku:${JSON.stringify(String(sku).trim())}`;
+  } else if (barcode) {
+    searchQuery = `barcode:${JSON.stringify(String(barcode).trim())}`;
+  } else if (title) {
+    // Title search is fuzzy; we return all matches so the caller disambiguates.
+    searchQuery = `title:${JSON.stringify(String(title).trim())}`;
+  } else {
+    return null;
+  }
+
+  const data = await _graphql(
+    `query FindProducts($q: String!) {
+      products(first: 10, query: $q) {
+        edges { node { ${_PRODUCT_FIELDS} } }
+      }
+    }`,
+    { q: searchQuery }
+  );
+
+  const edges = data.data?.products?.edges || [];
+  const matched = edges.map(e => _shapeProductNode(e.node)).filter(Boolean);
+
+  if (matched.length === 0) return null;
+  if (matched.length === 1) return matched[0];
+  return matched; // multiple — caller decides
+}
+
+/**
+ * Update only the provided fields on an EXISTING product. Never creates a
+ * product, never touches price/cost/inventory.
+ *
+ * @param {string} productId  numeric id or gid
+ * @param {object} fields
+ * @param {string} [fields.title]
+ * @param {string} [fields.description]   maps to descriptionHtml / body_html
+ * @param {string} [fields.vendor]
+ * @param {string} [fields.product_type]
+ * @param {string[]|string} [fields.tags]
+ * @param {Array<{namespace,key,value,type}>} [fields.metafields]
+ * @param {string} [fields.imageUrl]  attached as a NEW product image (data: URL supported)
+ * @returns {Promise<object>} updated product summary
+ */
+export async function updateProductListing(productId, fields = {}) {
+  console.log("SHOPIFY: Updating product listing:", productId);
+
+  const gid = String(productId).startsWith("gid://")
+    ? productId
+    : `gid://shopify/Product/${productId}`;
+
+  // ---- Core fields + metafields via productUpdate -------------------------
+  const input = { id: gid };
+  if (typeof fields.title === "string" && fields.title.trim()) input.title = fields.title;
+  if (typeof fields.description === "string" && fields.description.trim()) input.descriptionHtml = fields.description;
+  if (typeof fields.vendor === "string" && fields.vendor.trim()) input.vendor = fields.vendor;
+  if (typeof fields.product_type === "string" && fields.product_type.trim()) input.productType = fields.product_type;
+  if (fields.tags !== undefined && fields.tags !== null) {
+    input.tags = Array.isArray(fields.tags)
+      ? fields.tags
+      : String(fields.tags).split(",").map(t => t.trim()).filter(Boolean);
+  }
+
+  const metafields = Array.isArray(fields.metafields) ? fields.metafields : [];
+  if (metafields.length > 0) {
+    input.metafields = metafields.map(mf => ({
+      namespace: mf.namespace || "custom",
+      key: mf.key,
+      value: mf.value,
+      type: mf.type
+    }));
+  }
+
+  const mutation = `
+    mutation productUpdate($input: ProductInput!) {
+      productUpdate(input: $input) {
+        product {
+          ${_PRODUCT_FIELDS}
+        }
+        userErrors { field message }
+      }
+    }
+  `;
+
+  // Core-only mutation used for retries (avoids re-sending metafields).
+  const coreMutation = `
+    mutation productUpdate($input: ProductInput!) {
+      productUpdate(input: $input) {
+        product { ${_PRODUCT_FIELDS} }
+        userErrors { field message }
+      }
+    }
+  `;
+
+  let updatedNode = null;
+  try {
+    const data = await _graphql(mutation, { input });
+    const userErrors = data.data?.productUpdate?.userErrors || [];
+    if (userErrors.length > 0) {
+      console.error("SHOPIFY: productUpdate userErrors:", JSON.stringify(userErrors));
+      // Mirror createDraftProduct's fallback: retry metafields individually.
+      if (metafields.length > 0) {
+        console.log("SHOPIFY: Retrying metafields individually after productUpdate error…");
+        // Strip metafields and retry core fields alone so title/description still land.
+        const coreInput = { ...input };
+        delete coreInput.metafields;
+        if (Object.keys(coreInput).length > 1) { // more than just id
+          try {
+            const retry = await _graphql(coreMutation, { input: coreInput });
+            updatedNode = retry.data?.productUpdate?.product || null;
+          } catch (e) {
+            console.warn("SHOPIFY: core-only productUpdate retry failed:", e?.message || String(e));
+          }
+        }
+        await _updateMetafieldsIndividually(gid, metafields);
+      }
+    } else {
+      updatedNode = data.data?.productUpdate?.product || null;
+    }
+  } catch (err) {
+    console.error("SHOPIFY: productUpdate failed:", err?.message || String(err));
+    // Best-effort: still try metafields individually so partial progress is made.
+    if (metafields.length > 0) {
+      await _updateMetafieldsIndividually(gid, metafields);
+    }
+  }
+
+  // ---- Optional NEW image via productCreateMedia --------------------------
+  if (fields.imageUrl) {
+    try {
+      await _attachProductImage(gid, fields.imageUrl);
+    } catch (err) {
+      console.warn("SHOPIFY: attaching product image failed:", err?.message || String(err));
+    }
+  }
+
+  // ---- Return a fresh summary --------------------------------------------
+  if (updatedNode) {
+    return _shapeProductNode(updatedNode);
+  }
+  // Fall back to a fresh fetch if the mutation didn't return the node.
+  try {
+    const data = await _graphql(
+      `query Refetch($id: ID!) { product(id: $id) { ${_PRODUCT_FIELDS} } }`,
+      { id: gid }
+    );
+    return _shapeProductNode(data.data?.product);
+  } catch {
+    return { id: gid };
+  }
+}
+
+/**
+ * Internal: update metafields one-by-one (mirrors updateMetafieldsIndividually
+ * used by the create flow) so one bad metafield doesn't fail the whole batch.
+ */
+async function _updateMetafieldsIndividually(gid, metafields) {
+  let successCount = 0;
+  const mutation = `
+    mutation productUpdate($input: ProductInput!) {
+      productUpdate(input: $input) {
+        product { id }
+        userErrors { field message }
+      }
+    }
+  `;
+  for (const mf of metafields) {
+    try {
+      const data = await _graphql(mutation, {
+        input: {
+          id: gid,
+          metafields: [{
+            namespace: mf.namespace || "custom",
+            key: mf.key,
+            value: mf.value,
+            type: mf.type
+          }]
+        }
+      });
+      const errs = data.data?.productUpdate?.userErrors || [];
+      if (errs.length > 0) {
+        console.error(`SHOPIFY: Failed to set ${mf.key}:`, errs[0].message);
+      } else {
+        successCount++;
+      }
+    } catch (err) {
+      console.error(`SHOPIFY: Error setting ${mf.key}:`, err?.message || String(err));
+    }
+  }
+  console.log(`SHOPIFY: Set ${successCount}/${metafields.length} metafields individually`);
+}
+
+/**
+ * Internal: attach a NEW image to an existing product.
+ * Mirrors createProduct's data-url handling: for data: URLs we upload the bytes
+ * to Shopify Files first, then reference the resulting CDN URL; plain URLs are
+ * passed straight to productCreateMedia.
+ */
+async function _attachProductImage(gid, imageUrl) {
+  let originalSource = imageUrl;
+
+  if (typeof imageUrl === "string" && imageUrl.startsWith("data:")) {
+    const match = imageUrl.match(/^data:(.+?);base64,(.+)$/);
+    const b64 = match?.[2];
+    if (!b64) {
+      console.warn("SHOPIFY: data URL had no base64 payload; skipping image");
+      return;
+    }
+    const buffer = Buffer.from(b64, "base64");
+    const uploaded = await uploadFileToShopify(buffer, "studio.png");
+    originalSource = uploaded?.url;
+    if (!originalSource) {
+      console.warn("SHOPIFY: file upload returned no URL; skipping image");
+      return;
+    }
+  }
+
+  const mutation = `
+    mutation productCreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
+      productCreateMedia(productId: $productId, media: $media) {
+        media {
+          ... on MediaImage { id image { url } }
+        }
+        mediaUserErrors { field message }
+      }
+    }
+  `;
+
+  const data = await _graphql(mutation, {
+    productId: gid,
+    media: [{
+      originalSource,
+      mediaContentType: "IMAGE"
+    }]
+  });
+
+  const errs = data.data?.productCreateMedia?.mediaUserErrors || [];
+  if (errs.length > 0) {
+    console.error("SHOPIFY: productCreateMedia errors:", JSON.stringify(errs));
+  } else {
+    console.log("SHOPIFY: Attached new product image");
+  }
+}
